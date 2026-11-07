@@ -176,6 +176,14 @@ def main():
     if len(set(keys)) != len(keys):
         print("知识点 key 重复", file=sys.stderr)
         return 1
+    seen_prompt = {}
+    for spec in TOPICS:
+        for item in spec["items"]:
+            prompt = item[0]
+            if prompt in seen_prompt:
+                print("题干重复：%s 与 %s：%s" % (spec["key"], seen_prompt[prompt], prompt), file=sys.stderr)
+                return 1
+            seen_prompt[prompt] = spec["key"]
 
     base_topics = [t for t in topics if not is_mor_topic_id(t.get("id"))]
     base_deps = [e for e in deps if not is_mor_topic_id(e.get("topicId")) and not is_mor_topic_id(e.get("prerequisiteId"))]
