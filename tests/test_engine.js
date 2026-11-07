@@ -110,6 +110,17 @@ test('答对：该点及所有祖先（含外部）视为掌握并跳过', () =>
   assert.strictEqual(sum.asked, 1);
 });
 
+test('筛查：答对只沿硬先修推断，软边不连带跳过', () => {
+  let s = E.createSession(G, ['T', 'B'], { mode: 'screen', limit: 10, confirm: 1 });
+  assert.strictEqual(E.nextQuestion(G, s), 'T');
+  s = E.applyAnswer(G, s, 'T', 'correct');
+  assert.strictEqual(E.statusOf(s, 'T'), 'mastered');
+  assert.strictEqual(s.status.C.src, 'inferred');
+  assert.strictEqual(s.status.D.src, 'inferred');
+  assert.strictEqual(E.statusOf(s, 'B'), 'unknown');
+  assert.strictEqual(E.nextQuestion(G, s), 'B');
+});
+
 test('答错：回溯先修，hard 先于 soft，深度优先', () => {
   const s0 = E.createSession(G, ['T']);
   const [s, asked] = run(s0, { T: 'wrong', C: 'wrong', E: 'correct', D: 'correct', B: 'correct' });
@@ -1622,6 +1633,27 @@ test('筛查：题量不超过上限（一年级 / 七年级 / 七上；全错�
       assert.strictEqual(sum.asked, s.answers.length);
     });
   });
+});
+
+test('筛查：四年级语文整年级不被教材顺序软边收成 3 题，全对会问到上限', () => {
+  const g = E.gradeTargets(RGQ, '四年级', 'chinese');
+  assert.ok(g && g.ids.length > E.SCREEN_LIMIT);
+  const s = screenRun(g, allRight, E.SCREEN_LIMIT);
+  const sum = E.summarize(RGQ, s);
+  assert.strictEqual(sum.asked, E.SCREEN_LIMIT);
+  assert.ok(sum.mastered.length < g.ids.length);
+  assert.ok(sum.untested.length > 0);
+  const distinct = new Set(s.answers.map((a) => a.id));
+  assert.ok(distinct.size > 3, '只问了 ' + distinct.size + ' 个知识点');
+  assert.ok(sum.untested.length > g.ids.length / 2, '未测只剩 ' + sum.untested.length);
+  const first = s.answers[0].id;
+  RGQ.prereqs[first].filter((p) => p.strength === 'hard' && g.ids.includes(p.id)).forEach((p) => {
+    assert.strictEqual(E.statusOf(s, p.id), 'mastered');
+    assert.ok(!s.answers.some((a) => a.id === p.id), p.id + ' 是硬先修，不应再出题');
+  });
+  const softNext = RGQ.prereqs[first].find((p) => p.strength === 'soft' && g.ids.includes(p.id));
+  assert.ok(softNext, first + ' 应有一条范围内的软先修');
+  assert.ok(s.answers.some((a) => a.id === softNext.id), '软先修不应被整段跳过');
 });
 
 test('筛查：全对的学生只需很少几题（答对即推断先修）；一年级默认上限内能问完', () => {

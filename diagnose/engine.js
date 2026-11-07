@@ -8,15 +8,17 @@
  *         summarize(graph, session) -> 结果（根因、学习路径、掌握/不稳/薄弱/未测）
  *         gradeTargets(graph, '一年级'|'七上'|'高一'|'选必二', subject?) -> {ids, volumes, label} | null
  *           默认 subject 为 math，不把英语卷进数学的整册；'english' 只取英语（含九全），'physics' 只取物理（八上、八下、九全），'all' 不限学科
- *         createSession(graph, ids, {mode:'screen', confirm}) -> 筛查会话：范围 = 目标本身，回溯不出范围，默认题量上限 SCREEN_LIMIT
+ *         createSession(graph, ids, {mode:'screen', confirm}) -> 筛查会话：范围 = 目标本身，回溯不出范围，默认题量上限 SCREEN_LIMIT；答对只沿硬先修推断
  *         chapterSummary(graph, session) -> 按章汇总（薄弱章节在前）
  *         layout(graph, session, summary) -> 路径图的分层布局
  *         judgeQuestion(question, userText) -> {verdict:'correct'|'wrong'|'manual', reason}
  *         judgeAnswer(user, reference) -> 同上（只按参考答案文本判，旧接口）
  *
  * 每个知识点需连续答对 confirm 题才判掌握（默认 3，可选 2/3/5；题库更少时以题库为准）：
- *   连续答对满额 -> 掌握（并推断祖先掌握）；中途错 / 不会 -> 再出一道更基础的题确认：
+ *   连续答对满额 -> 掌握，并推断祖先掌握；中途错 / 不会 -> 再出一道更基础的题确认：
  *   确认题对 -> 不稳（shaky，不向先修回溯）；确认题也错 -> 薄弱（weak，向先修回溯，hard 先于 soft）。
+ *   单点 / 整章：推断全部祖先（含软边）。
+ *   筛查（整年级 / 整册）：只沿硬先修推断。软边多半是教材顺序，答对链尾不能跳过前面整条链。
  *   选题：第一题优先 standard（提高）；连续答对再出 challenge（拓展）确认掌握；答错先补 basic。
  */
 (function (root, factory) {
@@ -74,21 +76,30 @@
     };
   }
 
-  /** 严格祖先集合（不含自身），带缓存。 */
-  function ancestorSet(graph, id) {
-    const memo = graph._anc;
+  /** 严格祖先集合（不含自身），带缓存。follow 缺省时软边、硬边都走。 */
+  function ancestorSet(graph, id, follow) {
+    const hardOnly = follow === 'hard';
+    const memo = hardOnly ? (graph._hardAnc || (graph._hardAnc = Object.create(null))) : graph._anc;
     if (memo[id]) return memo[id];
-    const visiting = graph._visiting || (graph._visiting = Object.create(null));
-    if (visiting[id]) throw new Error('先修图存在环：' + id);
-    visiting[id] = true;
+    const bag = hardOnly
+      ? (graph._visitingHard || (graph._visitingHard = Object.create(null)))
+      : (graph._visiting || (graph._visiting = Object.create(null)));
+    if (bag[id]) throw new Error('先修图存在环：' + id);
+    bag[id] = true;
     const out = new Set();
     graph.prereqs[id].forEach(function (p) {
+      if (hardOnly && p.strength !== 'hard') return;
       out.add(p.id);
-      ancestorSet(graph, p.id).forEach(function (a) { out.add(a); });
+      ancestorSet(graph, p.id, follow).forEach(function (a) { out.add(a); });
     });
-    visiting[id] = false;
+    bag[id] = false;
     memo[id] = out;
     return out;
+  }
+
+  /** 筛查只把硬先修当成「会了后面就会前面」。软边常是课文先后，不能据此跳过。 */
+  function inferredAncestors(graph, session, id) {
+    return ancestorSet(graph, id, session && session.mode === 'screen' ? 'hard' : undefined);
   }
 
   function ancestors(graph, ids) {
@@ -279,7 +290,8 @@
 
   /**
    * 记录一次作答（针对 nextItem 给出的那道题）。
-   *  - 连续答对满 needConfirm 题：该点及其所有尚未判定的祖先记为掌握（祖先为 inferred）；
+   *  - 连续答对满 needConfirm 题：该点记为掌握。单点 / 整章把尚未判定的全部祖先记为推断掌握；
+   *    筛查只沿硬先修推断，软边上的祖先保持未测，继续出题；
    *  - 连续答对尚未满额：还没有结论，继续出同知识点下一题；
    *  - 中途 wrong/skip：还没有结论，再出一道确认题（没有可出的就直接判薄弱）；
    *  - 确认题 correct：不稳（shaky），不向先修回溯；
@@ -304,7 +316,7 @@
     if (result === 'correct') {
       if (fails === 0 && corrects >= need) {
         s.status[id] = { s: 'mastered', src: 'direct' };
-        ancestorSet(graph, id).forEach(function (a) {
+        inferredAncestors(graph, s, id).forEach(function (a) {
           if (!s.status[a]) s.status[a] = { s: 'mastered', src: 'inferred' };
         });
       } else if (fails > 0) {
