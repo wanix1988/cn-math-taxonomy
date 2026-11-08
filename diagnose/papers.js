@@ -98,6 +98,7 @@
       score: '',
       total: '100',
       totalEdited: false,
+      scoreEdited: false,
       childId: child ? child.id : null,
       childName: child ? child.name : '',
       createdAt: '',
@@ -170,27 +171,26 @@
         var probe = drawFitted(img, 1024);
         var ctx = probe.getContext('2d', { willReadFrequently: true });
         var quarter = PQ.suggestRotation(ctx.getImageData(0, 0, probe.width, probe.height));
-        var analysis = turnCanvas(probe, quarter);
-        var actx = analysis.getContext('2d', { willReadFrequently: true });
-        var marks = marksFromAnalysis(actx.getImageData(0, 0, analysis.width, analysis.height));
         var viewSrc = img.naturalWidth > 1024 ? drawFitted(img, 1600) : probe;
         var view = turnCanvas(viewSrc, quarter);
         view.toBlob(function (blob) {
           URL.revokeObjectURL(url);
           if (!blob) { reject(new Error('图片无法压缩')); return; }
-          resolve({
-            id: PQ.newId('g_'),
-            blob: blob,
-            source: file,
-            sourceName: file.name || '',
-            sourceType: file.type || 'image/jpeg',
-            width: view.width,
-            height: view.height,
-            marks: marks,
-            sheet: marks.sheet || null,
-            upright: 1,
-            turned: quarter
-          });
+          blobMarks(blob).then(function (marks) {
+            resolve({
+              id: PQ.newId('g_'),
+              blob: blob,
+              source: file,
+              sourceName: file.name || '',
+              sourceType: file.type || 'image/jpeg',
+              width: view.width,
+              height: view.height,
+              marks: marks,
+              sheet: marks.sheet || null,
+              upright: 1,
+              turned: quarter
+            });
+          }, reject);
         }, 'image/jpeg', 0.82);
       };
       img.onerror = function () {
@@ -384,6 +384,7 @@
         score: paper.score == null ? '' : String(paper.score),
         total: paper.total == null || paper.total === '' ? '100' : String(paper.total),
         totalEdited: !(paper.total == null || paper.total === ''),
+        scoreEdited: !(paper.score == null || paper.score === ''),
         childId: paper.childId,
         childName: paper.childName || '',
         createdAt: paper.createdAt,
@@ -423,7 +424,7 @@
     var html = '<section class="card">';
     html += '<p><a href="#/">返回列表</a></p>';
     html += '<h1>' + (draft.id ? '编辑试卷' : '导入试卷') + '</h1>';
-    html += '<p class="muted">选择已批改试卷的照片。照片不论横着、竖着还是倒着拍，查看时都会转正。认得出的试卷名称、年级、得分，以及错题的完整题目、知识点、孩子的答案、订正和原因会先填上，卷面没有的再补。导入后给出这份试卷的综评结论。对勾和它上方的页标划线不算单题。</p>';
+    html += '<p class="muted">选择已批改试卷的照片。照片不论横着、竖着还是倒着拍，查看时都会转正。认得出的试卷名称、年级、得分，以及错题的完整题目、知识点、孩子的答案、订正和原因会先填上，卷面没有的再补。导入后给出这份试卷的综评结论。对勾和它上方的页标划线不算单题。同一份照片已经在错题库里时，不再录入。</p>';
     if (draft.childName) html += '<p class="small">记在「' + esc(draft.childName) + '」名下。</p>';
     html += '<div class="pq-form">';
     html += field('试卷名称', '<input id="pq-title" type="text" maxlength="40" value="' + esc(draft.title) + '" placeholder="例如：四年级期中数学">');
@@ -569,6 +570,7 @@
     if (!String(draft.title || '').trim() && sheet.title) draft.title = sheet.title;
     if (!String(draft.grade || '').trim() && sheet.grade) draft.grade = sheet.grade;
     if (String(draft.score == null ? '' : draft.score).trim() === '' && sheet.score) draft.score = sheet.score;
+    else if (!draft.scoreEdited && sheet.score) draft.score = sheet.score;
     if (!draft.totalEdited && sheet.total) draft.total = String(sheet.total);
     if (String(draft.total == null ? '' : draft.total).trim() === '') draft.total = '100';
   }
@@ -677,26 +679,45 @@
     } else setMsg('正在读取图片并自动分析错题……');
     Promise.all(list.map(readImage)).then(function (pages) {
       readMeta();
-      pages.forEach(function (page) {
-        draft.pages.push(page);
-        applySheet(page.sheet);
-      });
-      dirty = true;
-      selected = { page: draft.pages.length - pages.length, mark: 0 };
-      var found = 0;
-      var noted = 0;
-      pages.forEach(function (page) {
-        page.marks.forEach(function (mark) {
-          found++;
-          if (mark.rightAnswer || mark.reasonNote) noted++;
+      var prior = draft.pages.slice();
+      return PQ.fingerprintPages(prior.concat(pages)).then(function () {
+        return PQ.libraryFingerprints();
+      }).then(function (library) {
+        var accepted = [];
+        var blocked = null;
+        pages.forEach(function (page) {
+          var own = { id: '__draft__', title: '', pages: prior.concat(accepted) };
+          var dup = PQ.duplicateOf([page], library.concat([own]), draft.id || '');
+          if (dup && dup.id === '__draft__') dup = { reason: 'repeat', title: '' };
+          if (dup) { blocked = dup; return; }
+          accepted.push(page);
         });
+        if (!accepted.length) {
+          setMsg(PQ.duplicateMessage(blocked));
+          return;
+        }
+        accepted.forEach(function (page) {
+          draft.pages.push(page);
+          applySheet(page.sheet);
+        });
+        dirty = true;
+        selected = { page: draft.pages.length - accepted.length, mark: 0 };
+        var found = 0;
+        var noted = 0;
+        accepted.forEach(function (page) {
+          page.marks.forEach(function (mark) {
+            found++;
+            if (mark.rightAnswer || mark.reasonNote) noted++;
+          });
+        });
+        paintEdit();
+        var turned = accepted.some(function (page) { return page.turned; });
+        var head = turned ? '照片已转正。' : '';
+        var tail = blocked ? PQ.duplicateMessage(blocked, true) : '';
+        setMsg(found
+          ? head + '已自动记下 ' + found + ' 道错题' + (noted ? '，其中 ' + noted + ' 道填上了订正或原因' : '') + '。综评结论写在上方。核对红框和下面的栏，多出来的删掉，漏掉的点在题目上补一处。' + tail
+          : head + '这几页上没有看出来的批改笔迹。点在错题位置即可补上，补上后综评会跟着写出来。' + tail);
       });
-      paintEdit();
-      var turned = pages.some(function (page) { return page.turned; });
-      var head = turned ? '照片已转正。' : '';
-      setMsg(found
-        ? head + '已自动记下 ' + found + ' 道错题' + (noted ? '，其中 ' + noted + ' 道填上了订正或原因' : '') + '。综评结论写在上方。核对红框和下面的栏，多出来的删掉，漏掉的点在题目上补一处。'
-        : head + '这几页上没有看出来的批改笔迹。点在错题位置即可补上，补上后综评会跟着写出来。');
     }).catch(function (err) {
       setMsg((err && err.message) || '图片没有读出来。');
     });
@@ -822,7 +843,7 @@
     });
     paper.summary = PQ.summarizeExam(paper, items).text;
     setMsg('正在写入错题库……');
-    PQ.savePaper({ paper: paper, pages: pages, items: items }).then(function (saved) {
+    PQ.savePaper({ paper: paper, pages: pages, items: items }, { rejectDuplicate: !draft.id }).then(function (saved) {
       dirty = false;
       go('#/paper/' + encodeURIComponent(saved.id));
     }).catch(function (err) {
@@ -918,11 +939,19 @@
       page.blob = next.blob;
       page.width = next.width;
       page.height = next.height;
-      page.marks.forEach(function (mark) { spinBox(mark, quarter); });
+      return loadBitmap(next.blob).then(function (img) {
+        var probe = drawFitted(img, 1024);
+        var ctx = probe.getContext('2d', { willReadFrequently: true });
+        var marks = marksFromAnalysis(ctx.getImageData(0, 0, probe.width, probe.height));
+        page.marks = marks;
+        page.sheet = marks.sheet || null;
+        if (page.sheet) applySheet(page.sheet);
+      });
+    }).then(function () {
       dirty = true;
       turning = false;
       paintEdit();
-      setMsg('已旋转。错题框跟着照片一起转了。');
+      setMsg('已转正，并按这个方向重新认出了错题。');
     }).catch(function (err) {
       turning = false;
       setMsg((err && err.message) || '没有转成。');
@@ -1127,6 +1156,7 @@
     if (!bind) {
       if (e.target.id && e.target.id.indexOf('pq-') === 0) {
         if (e.target.id === 'pq-total') draft.totalEdited = true;
+        if (e.target.id === 'pq-score') draft.scoreEdited = true;
         readMeta();
         dirty = true;
         refreshConclusion();
@@ -1151,6 +1181,7 @@
     }
     if (e.target.id && e.target.id.indexOf('pq-') === 0) {
       if (e.target.id === 'pq-total') draft.totalEdited = true;
+      if (e.target.id === 'pq-score') draft.scoreEdited = true;
       readMeta(); dirty = true; refreshConclusion();
     }
   });

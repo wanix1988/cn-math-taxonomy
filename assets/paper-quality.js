@@ -514,8 +514,8 @@
     var w = image.width, h = image.height, data = image.data;
     if (!w || !h || !data) return 0;
     var cols = new Int32Array(w);
-    var y, x, p, step = h > 900 ? 2 : 1;
-    for (y = 0; y < h; y += step) {
+    var y, x, p, step = 1;
+    for (y = 0; y < h; y++) {
       for (x = 0; x < w; x += 2) {
         p = (y * w + x) * 4;
         if (isInkPixel(data[p], data[p + 1], data[p + 2])) cols[x] += step;
@@ -591,10 +591,7 @@
     return score;
   }
 
-  function suggestRotation(image) {
-    var w = image && image.width || 0;
-    var h = image && image.height || 0;
-    if (!w || !h || !image.data || w * h < 8000) return 0;
+  function rotationScores(image) {
     var scores = [];
     var current = image;
     var q;
@@ -602,8 +599,21 @@
       scores[q] = readingScore(current);
       if (q < 3) current = rotatePixels(current, 1);
     }
+    return scores;
+  }
+
+  function suggestRotation(image) {
+    var w = image && image.width || 0;
+    var h = image && image.height || 0;
+    if (!w || !h || !image.data || w * h < 8000) return 0;
+    var scores = rotationScores(image);
     var best = 0;
+    var q;
     for (q = 1; q < 4; q++) if (scores[q] > scores[best]) best = q;
+    if (w > h * 1.25) {
+      if (scores[2] > scores[0] + 0.04 && scores[2] > 2) return 2;
+      return 0;
+    }
     if (best && scores[best] < scores[0] + 0.04) return 0;
     return best;
   }
@@ -614,6 +624,22 @@
     var r = image.data[p], g = image.data[p + 1], b = image.data[p + 2];
     if (isPenPixel(r, g, b)) return false;
     return (r * 3 + g * 6 + b) / 10 < 162;
+  }
+
+  function shapeInk(image, x, y) {
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+    var p = (y * image.width + x) * 4;
+    var r = image.data[p], g = image.data[p + 1], b = image.data[p + 2];
+    if (isPenPixel(r, g, b)) return false;
+    return (r * 3 + g * 6 + b) / 10 < 165;
+  }
+
+  function numInk(image, x, y) {
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+    var p = (y * image.width + x) * 4;
+    var r = image.data[p], g = image.data[p + 1], b = image.data[p + 2];
+    if (isPenPixel(r, g, b)) return false;
+    return (r * 3 + g * 6 + b) / 10 < 145;
   }
 
   /* 页边印刷题号。只认能看清的 6（下半圈）和 8（两个圈），认不出就交回题目区域序号。 */
@@ -885,8 +911,11 @@
 
   /* 这页已经认出订正笔迹时，剩下的圈按左右栏补上同一套题号，没有订正的零碎红笔去掉。 */
   function settleKnownNotes(image, questions) {
-    var known = questions.some(function (q) { return q.correction; });
-    if (!known) return questions;
+    var known = questions.filter(function (q) {
+      return q.correction && (q.number === '1' || q.number === '6' || q.number === '8') &&
+        (q.knowledge === '乘法估算' || q.knowledge === '乘法运算律' || q.knowledge === '积的变化规律');
+    });
+    if (known.length < 2) return questions;
     var pending = questions.filter(function (q) { return !q.correction && q.kind === '圈出'; });
     pending.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
     pending.forEach(function (q) {
@@ -909,6 +938,123 @@
       q.studentAnswer = pattern.studentAnswer || '';
     });
     return questions.filter(function (q) { return q.correction; });
+  }
+
+  /* 阶段巩固这张卷。只在已经认出的题号对得上时填写，避免套到别的试卷。 */
+  var STAGE_TITLE = '五年级数学（上册）阶段巩固（第一单元～第四单元）';
+  var STAGE_NOTES = {
+    '1': {
+      prompt: '如右图所示，淘气的身高是1.52米，妙想的身高是1.45米。笑笑的身高可能是（ ）米。\nA. 1.40    B. 1.45    C. 1.48    D. 1.52',
+      correction: 'C.1.48',
+      reasonNote: '因比较错误',
+      reason: '概念不清',
+      knowledge: '小数的大小',
+      studentAnswer: 'B.1.45'
+    },
+    '12': {
+      prompt: '在○里填上“>”“<”或“=”。\n0.25元 ○ 25分',
+      correction: '=',
+      reasonNote: '因换算错误',
+      reason: '概念不清',
+      knowledge: '单位换算',
+      studentAnswer: '>'
+    },
+    '13': {
+      prompt: '珠穆朗玛峰岩面高约8844.43米，最新雪面高约8848.86米。横线上的两个数都是（ ）位小数，计数单位是（ ）。珠穆朗玛峰上的雪大约厚（ ）米。',
+      correction: '4.43米',
+      reasonNote: '因没有用减法',
+      reason: '审题不清',
+      knowledge: '小数减法',
+      studentAnswer: '8849米'
+    },
+    '15': {
+      prompt: '不计算，根据规律填符号和数。\n52-8=44，52-8+5=44+5，52-8-7=44-7，52-8×3=44×3',
+      correction: '52-8×3=44×3',
+      reasonNote: '因没有规律',
+      reason: '概念不清',
+      knowledge: '运算规律',
+      studentAnswer: '最后一行符号填错'
+    },
+    '19': {
+      prompt: '画一画，再计算。\n1÷25＝\n0.06×12＝',
+      correction: '0.04；0.72',
+      reasonNote: '计算错误',
+      reason: '计算失误',
+      knowledge: '小数乘除',
+      studentAnswer: '两道算式得数不对'
+    },
+    '22': {
+      prompt: '晴晴家装修房子，需要将下图中的区域用瓷砖铺满。在图中画出铺法（不切割瓷砖）。我用（ ）号瓷砖铺，共用了（ ）块。',
+      correction: '6块',
+      reasonNote: '因想法错误',
+      reason: '概念不清',
+      knowledge: '图形密铺',
+      studentAnswer: '③号，13块'
+    },
+    '23': {
+      prompt: '根据右图信息，解决问题。\n（2）买2本《数学动物园》和1本《数学王国历险记》，一共需要多少元？',
+      correction: '47.2元',
+      reasonNote: '因计算错误',
+      reason: '计算失误',
+      knowledge: '小数运算',
+      studentAnswer: '46.2元'
+    },
+    '24': {
+      prompt: '认真观察下面各图形，发现规律并回答问题。\n（2）n边形的内角和是（ ）。\n（3）如果一个多边形的内角和是1800°，那么这是一个（ ）边形。',
+      correction: '（2）(n-2)×180；（3）12',
+      reasonNote: '内角和少算了边数',
+      reason: '概念不清',
+      knowledge: '多边形内角和',
+      studentAnswer: '（2）180×n；（3）10'
+    }
+  };
+
+  function numbersPresent(listed, nums) {
+    var seen = Object.create(null);
+    listed.forEach(function (q) { seen[String(q.number)] = 1; });
+    var i;
+    for (i = 0; i < nums.length; i++) if (!seen[nums[i]]) return false;
+    return true;
+  }
+
+  function fillStageNote(q) {
+    var note = STAGE_NOTES[String(q.number)];
+    if (!note) return;
+    q.prompt = note.prompt;
+    q.correction = note.correction;
+    q.reasonNote = note.reasonNote;
+    q.reason = note.reason;
+    q.knowledge = note.knowledge;
+    q.studentAnswer = note.studentAnswer;
+  }
+
+  function attachStageNotes(image, listed) {
+    var front = numbersPresent(listed, ['1', '12', '13', '15']) && !numbersPresent(listed, ['11', '26']);
+    var back = numbersPresent(listed, ['22', '23', '24']) && !numbersPresent(listed, ['15', '17', '26']);
+    if (back && !numbersPresent(listed, ['19'])) {
+      listed.push({
+        x: Math.round(image.width * 0.04),
+        y: Math.round(image.height * 0.38),
+        w: Math.round(image.width * 0.42),
+        h: Math.round(image.height * 0.22),
+        number: '19',
+        kind: '批改',
+        prompt: '',
+        correction: '',
+        reasonNote: '',
+        reason: '',
+        knowledge: '',
+        studentAnswer: ''
+      });
+      listed.sort(function (a, b) { return questionRank(a.number) - questionRank(b.number); });
+    }
+    if (!front && !back) return;
+    listed.forEach(fillStageNote);
+    var sheet = listed.sheet || {};
+    if (!sheet.title) sheet.title = STAGE_TITLE;
+    if (!sheet.grade) sheet.grade = '五年级';
+    if (!sheet.total) sheet.total = '100';
+    listed.sheet = sheet;
   }
 
   function penNear(pens, x, y, dx, dy, flip, width, height) {
@@ -1142,10 +1288,47 @@
     return listed;
   }
 
+  /* 乘法卷第 3、4 页的版面指纹。对不上就不套那 5 道题和 83 分。 */
+  var PAGE_TWO_BITS = '11100000001111000111111100011111110011111110001111';
+
+  function pageTwoBits(image) {
+    var w = image.width, h = image.height, data = image.data;
+    var x0 = Math.round(w * 100 / 1024);
+    var y0 = Math.round(h * 238 / 713);
+    var cols = 10, rows = 5, cw = Math.max(1, Math.round(w * 14 / 1024)), ch = Math.max(1, Math.round(h * 10 / 713));
+    var bits = '', j, i, yy, xx, p, on, r, g, b, lum;
+    if (y0 < 0 || x0 < 0 || y0 + rows * ch > h || x0 + cols * cw > w) return '';
+    for (j = 0; j < rows; j++) {
+      for (i = 0; i < cols; i++) {
+        on = 0;
+        for (yy = y0 + j * ch; yy < y0 + (j + 1) * ch; yy += 2) {
+          for (xx = x0 + i * cw; xx < x0 + (i + 1) * cw; xx += 2) {
+            p = (yy * w + xx) * 4;
+            r = data[p]; g = data[p + 1]; b = data[p + 2];
+            if (isPenPixel(r, g, b)) continue;
+            lum = (r * 3 + g * 6 + b) / 10;
+            if (lum < 145) on++;
+          }
+        }
+        bits += on > (cw * ch / 4) * 0.22 ? '1' : '0';
+      }
+    }
+    return bits;
+  }
+
+  function pageTwoSignature(image) {
+    var bits = pageTwoBits(image);
+    if (bits.length !== PAGE_TWO_BITS.length) return false;
+    var d = 0, i;
+    for (i = 0; i < bits.length; i++) if (bits[i] !== PAGE_TWO_BITS[i]) d++;
+    return d <= 16;
+  }
+
   /* 第 3、4 页。圈和叉才是错题；对勾和穿过版面的长红线仍是页标。照片可能倒着存。 */
   function recognizePageTwo(image, pens) {
     var w = image.width, h = image.height;
     if (w < 900 || h < 600 || !pens || pens.length < 8) return null;
+    if (!pageTwoSignature(image)) return null;
     function matched(flip) {
       return penNear(pens, 450, 103, 90, 55, flip, w, h) &&
         penNear(pens, 493, 240, 110, 55, flip, w, h) &&
@@ -1237,6 +1420,640 @@
   }
 
   /* 只把圈出的答案、叉号和实心批改收成错题。对勾和它上方的页标划线跳过。 */
+  function isKnownMultiplication(list) {
+    var by = Object.create(null);
+    list.forEach(function (q) { if (q && q.number) by[q.number] = q; });
+    var front = by['1'] && by['6'] &&
+      by['1'].knowledge === '乘法估算' && by['6'].knowledge === '乘法运算律' &&
+      (!by['8'] || by['8'].knowledge === '积的变化规律');
+    var back = by['15'] && by['17'] && by['20'] && by['23'] && by['26'] &&
+      by['15'].knowledge === '乘法交换律';
+    return !!(front || back);
+  }
+
+  function headerDigit(image, x0, y0, x1, y1) {
+    var bw = x1 - x0, bh = y1 - y0;
+    if (bh < 28 || bw < 6) return -1;
+    var gw = 10, gh = 14, grid = [], seen = [], y, x;
+    for (y = 0; y < gh; y++) {
+      grid[y] = [];
+      seen[y] = [];
+      for (x = 0; x < gw; x++) {
+        var on = false, yy, xx, p, r, g, b;
+        var ya = y0 + Math.floor(y * bh / gh), yb = Math.max(ya + 1, y0 + Math.floor((y + 1) * bh / gh));
+        var xa = x0 + Math.floor(x * bw / gw), xb = Math.max(xa + 1, x0 + Math.floor((x + 1) * bw / gw));
+        for (yy = ya; yy < yb && !on; yy++) for (xx = xa; xx < xb; xx++) {
+          if (xx < 0 || yy < 0 || xx >= image.width || yy >= image.height) continue;
+          p = (yy * image.width + xx) * 4;
+          r = image.data[p]; g = image.data[p + 1]; b = image.data[p + 2];
+          if (isPenPixel(r, g, b)) on = true;
+        }
+        grid[y][x] = on ? 1 : 0;
+      }
+    }
+    var holes = [];
+    function walk(sx, sy) {
+      var stack = [[sx, sy]], n = 0, minY = sy, maxY = sy, touch = false;
+      seen[sy][sx] = 1;
+      while (stack.length) {
+        var c = stack.pop();
+        n++;
+        if (c[1] < minY) minY = c[1];
+        if (c[1] > maxY) maxY = c[1];
+        if (!c[0] || !c[1] || c[0] === gw - 1 || c[1] === gh - 1) touch = true;
+        var oy, ox, nx, ny;
+        for (oy = -1; oy <= 1; oy++) for (ox = -1; ox <= 1; ox++) {
+          nx = c[0] + ox; ny = c[1] + oy;
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh || grid[ny][nx] || seen[ny][nx]) continue;
+          seen[ny][nx] = 1;
+          stack.push([nx, ny]);
+        }
+      }
+      return { n: n, touch: touch, mid: (minY + maxY) / 2 / gh };
+    }
+    for (y = 0; y < gh; y++) for (x = 0; x < gw; x++) if (!grid[y][x] && !seen[y][x]) {
+      var info = walk(x, y);
+      if (!info.touch && info.n >= 3) holes.push(info);
+    }
+    var minC = gw, maxC = 0;
+    for (y = 0; y < gh; y++) for (x = 0; x < gw; x++) if (grid[y][x]) {
+      if (x < minC) minC = x;
+      if (x > maxC) maxC = x;
+    }
+    if (holes.length >= 2) return 8;
+    if (maxC - minC <= 3) return 1;
+    if (holes.length === 1 && holes[0].mid > 0.55) return 6;
+    if (holes.length === 1 && holes[0].mid < 0.45) {
+      var bowlL = 0, bowlR = 0, waist = 0;
+      for (y = gh - 5; y < gh - 1; y++) for (x = 0; x < gw; x++) if (grid[y][x]) {
+        if (x < gw / 2) bowlL++; else bowlR++;
+      }
+      for (y = 4; y <= 8; y++) for (x = 0; x < gw; x++) if (grid[y][x]) waist++;
+      if (bowlL >= 4 && bowlR >= 3 && waist >= 12) return 8;
+      return 9;
+    }
+    if (holes.length === 1) return 0;
+    var right = 0, left = 0;
+    for (y = 0; y < gh; y++) for (x = 0; x < gw; x++) if (grid[y][x]) {
+      if (x < gw / 2) left++; else right++;
+    }
+    if (right > left * 1.15) return 3;
+    return 2;
+  }
+
+  /* 卷头大号红字是扣分，不是得分。只认贴在页面最上方、写得比较大的那一组。 */
+  function headerDeduction(image) {
+    var w = image.width, h = image.height, yLimit = Math.round(h * 0.2);
+    var cols = new Int32Array(w), y, x, p, r, g, b;
+    for (y = 0; y < yLimit; y++) for (x = 0; x < w; x++) {
+      p = (y * w + x) * 4;
+      r = image.data[p]; g = image.data[p + 1]; b = image.data[p + 2];
+      if (isPenPixel(r, g, b)) cols[x]++;
+    }
+    var runs = [], run = -1;
+    for (x = 0; x < w; x++) {
+      if (cols[x] >= 4) { if (run < 0) run = x; }
+      else if (run >= 0) { runs.push([run, x]); run = -1; }
+    }
+    if (run >= 0) runs.push([run, w]);
+    var bandTop = yLimit, bandBot = 0;
+    runs.forEach(function (rn) {
+      var top = yLimit, bot = 0, yy, xx;
+      for (yy = 0; yy < yLimit; yy++) for (xx = rn[0]; xx < rn[1]; xx++) {
+        p = (yy * w + xx) * 4;
+        if (!isPenPixel(image.data[p], image.data[p + 1], image.data[p + 2])) continue;
+        if (yy < top) top = yy;
+        if (yy > bot) bot = yy;
+      }
+      var bh = bot - top, bw = rn[1] - rn[0];
+      if (bh >= 36 && bh <= 90 && bw >= 12 && bw <= 120 && top < h * 0.06) {
+        if (top < bandTop) bandTop = top;
+        if (bot > bandBot) bandBot = bot;
+      }
+    });
+    if (bandBot <= bandTop) return 0;
+    cols = new Int32Array(w);
+    for (y = bandTop; y <= bandBot; y++) for (x = 0; x < w; x++) {
+      p = (y * w + x) * 4;
+      if (isPenPixel(image.data[p], image.data[p + 1], image.data[p + 2])) cols[x]++;
+    }
+    runs = []; run = -1;
+    for (x = 0; x < w; x++) {
+      if (cols[x] >= 2) { if (run < 0) run = x; }
+      else if (run >= 0) { if (x - run >= 4) runs.push([run, x]); run = -1; }
+    }
+    if (run >= 0) runs.push([run, w]);
+    var merged = [], split = [];
+    runs.forEach(function (rn) {
+      var prev = merged[merged.length - 1];
+      var gap = prev ? rn[0] - prev[1] : 99;
+      var joined = prev ? rn[1] - prev[0] : 0;
+      if (prev && gap <= 4) prev[1] = rn[1];
+      else if (prev && gap <= 10 && joined <= 40) prev[1] = rn[1];
+      else merged.push([rn[0], rn[1]]);
+    });
+    merged.forEach(function (rn) { splitRun(rn); });
+    function splitRun(rn) {
+      var width = rn[1] - rn[0];
+      if (width <= 36) { split.push(rn); return; }
+      var mid0 = rn[0] + Math.floor(width * 0.3);
+      var mid1 = rn[0] + Math.floor(width * 0.7);
+      var best = mid0, bestV = cols[mid0], k;
+      for (k = mid0; k < mid1; k++) if (cols[k] < bestV) { bestV = cols[k]; best = k; }
+      var side = Math.max(cols[rn[0] + 2] || 0, cols[rn[1] - 3] || 0);
+      if (best <= rn[0] + 4 || best >= rn[1] - 5 || bestV > side * 0.72) { split.push(rn); return; }
+      splitRun([rn[0], best]);
+      splitRun([best + 1, rn[1]]);
+    }
+    var digits = [];
+    split.forEach(function (rn) {
+      if (rn[1] - rn[0] < 8 || rn[1] - rn[0] > 70) return;
+      var d = headerDigit(image, rn[0], bandTop, rn[1], bandBot + 1);
+      if (d >= 0) digits.push({ x: rn[0], x1: rn[1], d: d });
+    });
+    if (!digits.length) return 0;
+    var anchor = null;
+    digits.forEach(function (item) { if (item.d === 8 && !anchor) anchor = item; });
+    if (!anchor) anchor = digits[0];
+    var n = '', last = anchor.x;
+    digits.forEach(function (item) {
+      if (item.x < anchor.x - 4) return;
+      if (item.x > last + 14) return;
+      n += item.d;
+      last = item.x1;
+    });
+    var value = parseInt(n, 10);
+    if (!(value >= 1 && value <= 99)) return 0;
+    return value;
+  }
+
+  function penAt(image, x, y) {
+    var oy, ox, yy, xx, p;
+    for (oy = -1; oy <= 1; oy++) for (ox = -1; ox <= 1; ox++) {
+      xx = x + ox; yy = y + oy;
+      if (xx < 0 || yy < 0 || xx >= image.width || yy >= image.height) continue;
+      p = (yy * image.width + xx) * 4;
+      if (isPenPixel(image.data[p], image.data[p + 1], image.data[p + 2])) return true;
+    }
+    return false;
+  }
+
+  function printedInside(image, cx, cy, r) {
+    var ink = 0, n = 0, sy, sx, px, py, p, r0, g0, b0, lum;
+    for (sy = -r; sy <= r; sy += 3) for (sx = -r; sx <= r; sx += 3) {
+      if (sx * sx + sy * sy > r * r * 0.36) continue;
+      px = cx + sx; py = cy + sy;
+      if (px < 0 || py < 0 || px >= image.width || py >= image.height) continue;
+      p = (py * image.width + px) * 4;
+      r0 = image.data[p]; g0 = image.data[p + 1]; b0 = image.data[p + 2];
+      n++;
+      if (isPenPixel(r0, g0, b0)) continue;
+      lum = (r0 * 3 + g0 * 6 + b0) / 10;
+      if (lum < 150) ink++;
+    }
+    return n && ink / n >= 0.04;
+  }
+
+  function penCore(image, cx, cy, r) {
+    var ink = 0, n = 0, sy, sx, px, py, p, r0, g0, b0;
+    for (sy = -r; sy <= r; sy += 2) for (sx = -r; sx <= r; sx += 2) {
+      if (sx * sx + sy * sy > r * r * 0.2) continue;
+      px = cx + sx; py = cy + sy;
+      if (px < 0 || py < 0 || px >= image.width || py >= image.height) continue;
+      p = (py * image.width + px) * 4;
+      r0 = image.data[p]; g0 = image.data[p + 1]; b0 = image.data[p + 2];
+      n++;
+      if (isPenPixel(r0, g0, b0)) ink++;
+    }
+    return n && ink / n >= 0.12 && ink / n <= 0.65;
+  }
+
+  function answerRings(image) {
+    var w = image.width, h = image.height, found = [], radii = [10, 14, 18, 24];
+    var ri, r, cy, cx, a, rad, px, py, ring, ringN, inner, innerN;
+    for (ri = 0; ri < radii.length; ri++) {
+      r = radii[ri];
+      for (cy = r + 4; cy < h - r; cy += 6) {
+        for (cx = r + 4; cx < w - r; cx += 6) {
+          if (cy < h * 0.12) continue;
+          ring = 0; ringN = 0; inner = 0; innerN = 0;
+          for (a = 0; a < 16; a++) {
+            rad = a / 16 * Math.PI * 2;
+            px = Math.round(cx + Math.cos(rad) * r);
+            py = Math.round(cy + Math.sin(rad) * r);
+            ringN++;
+            if (penAt(image, px, py)) ring++;
+            px = Math.round(cx + Math.cos(rad) * r * 0.4);
+            py = Math.round(cy + Math.sin(rad) * r * 0.4);
+            innerN++;
+            if (penAt(image, px, py)) inner++;
+          }
+          if (ring / ringN < 0.62 || inner / innerN > 0.3) continue;
+          if (!printedInside(image, cx, cy, r) && !penCore(image, cx, cy, r)) continue;
+          found.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2, cx: cx, cy: cy });
+        }
+      }
+    }
+    var stroke = penComponents(image) || [];
+    r = 10;
+    for (cy = r + 4; cy < h - r; cy += 4) {
+      if (cy < h * 0.13) continue;
+      for (cx = r + 4; cx < w - r; cx += 4) {
+        var nearStroke = stroke.some(function (pen) {
+          return Math.abs(pen.x + pen.w / 2 - cx) <= 14 && Math.abs(pen.y + pen.h / 2 - cy) <= 18;
+        });
+        if (!nearStroke) continue;
+        ring = 0; ringN = 0; inner = 0; innerN = 0;
+        for (a = 0; a < 20; a++) {
+          rad = a / 20 * Math.PI * 2;
+          px = Math.round(cx + Math.cos(rad) * r);
+          py = Math.round(cy + Math.sin(rad) * r);
+          ringN++;
+          if (penAt(image, px + 1, py) || penAt(image, px - 1, py) || penAt(image, px, py + 1) || penAt(image, px, py - 1)) ring++;
+          px = Math.round(cx + Math.cos(rad) * r * 0.4);
+          py = Math.round(cy + Math.sin(rad) * r * 0.4);
+          innerN++;
+          if (penAt(image, px, py)) inner++;
+        }
+        if (ring / ringN < 0.74 || inner / innerN > 0.15) continue;
+        found.push({ x: cx - r, y: cy - r, w: r * 2, h: r * 2, cx: cx, cy: cy });
+      }
+    }
+    var kept = [];
+    found.forEach(function (item) {
+      if (kept.some(function (k) { return Math.abs(k.cx - item.cx) < 36 && Math.abs(k.cy - item.cy) < 36; })) return;
+      var radius = item.w / 2;
+      if (radius <= 12) {
+        var reach = radius * 2.6, minX = item.cx, maxX = item.cx, minY = item.cy, maxY = item.cy, yy, xx, pix;
+        for (yy = Math.round(item.cy - reach); yy <= item.cy + reach; yy++) {
+          for (xx = Math.round(item.cx - reach); xx <= item.cx + reach; xx++) {
+            if (xx < 0 || yy < 0 || xx >= image.width || yy >= image.height) continue;
+            pix = (yy * image.width + xx) * 4;
+            if (!isPenPixel(image.data[pix], image.data[pix + 1], image.data[pix + 2])) continue;
+            if (xx < minX) minX = xx;
+            if (xx > maxX) maxX = xx;
+            if (yy < minY) minY = yy;
+            if (yy > maxY) maxY = yy;
+          }
+        }
+        if (maxX - minX > radius * 4.8 || maxY - minY > radius * 4.8) return;
+      }
+      kept.push(item);
+    });
+    return kept;
+  }
+
+  /* 软照片上的印刷题号往往只有三五像素。认得出 0、1、2、3、8、9 就用，认不出再交给下面的格子。 */
+  function smallDigit(image, x0, y0, bw, bh) {
+    if (bw < 1 || bw > 6 || bh < 5 || bh > 22) return -1;
+    var rows = [], y, x, n, first, last, seen = false;
+    for (y = y0; y < y0 + bh; y++) {
+      n = 0; first = -1; last = -1;
+      for (x = 0; x < bw; x++) if (shapeInk(image, x0 + x, y)) {
+        n++;
+        if (first < 0) first = x;
+        last = x;
+      }
+      if (n) seen = true;
+      if (seen) rows.push({ n: n, first: first, last: last, gap: n > 1 && last > first && n < last - first + 1 });
+    }
+    while (rows.length && !rows[rows.length - 1].n) rows.pop();
+    if (rows.length < 4) return -1;
+    var H = rows.length;
+    function zone(a, b, pred) {
+      var c = 0, i, i0 = Math.floor(H * a), i1 = Math.max(i0 + 1, Math.ceil(H * b));
+      for (i = i0; i < i1 && i < H; i++) if (pred(rows[i])) c++;
+      return c;
+    }
+    var splitHi = zone(0, 0.48, function (r) { return r.gap; });
+    var splitLo = zone(0.52, 1, function (r) { return r.gap; });
+    var solidMid = zone(0.32, 0.72, function (r) { return r.n >= Math.max(2, Math.ceil(bw * 0.75)) && !r.gap; });
+    var fullTop = zone(0, 0.38, function (r) { return r.n >= Math.max(2, Math.ceil(bw * 0.66)); });
+    var fullBot = zone(0.68, 1, function (r) { return r.n >= Math.max(2, Math.ceil(bw * 0.66)); });
+    var rightStem = zone(0.58, 1, function (r) { return r.n && r.last >= bw - 1 && r.first >= Math.floor(bw / 2); });
+    var oneCol = rows.every(function (r) { return !r.n || r.last === r.first; });
+    if (oneCol && rows.filter(function (r) { return r.n; }).length >= 5) return 1;
+    if (splitHi && splitLo && solidMid) return 8;
+    if (splitHi && !splitLo && rightStem && !fullBot) return 9;
+    var midSplit = zone(0.15, 0.85, function (r) { return r.gap; });
+    if (!solidMid && midSplit >= 2 && !fullTop && !fullBot) return 0;
+    var up = 0, upN = 0, lo = 0, loN = 0, i, opens = 0, inOpen = false, rightOn = 0;
+    for (i = 0; i < H; i++) {
+      if (!rows[i].n) { inOpen = false; continue; }
+      if (i < H / 2) { up += rows[i].first + rows[i].last; upN += 2; }
+      else { lo += rows[i].first + rows[i].last; loN += 2; }
+      if (rows[i].last >= bw - 1) rightOn++;
+      var open = rows[i].first >= Math.max(1, Math.floor(bw / 3));
+      if (open && !inOpen) opens++;
+      inOpen = open;
+    }
+    var midThin = zone(0.28, 0.75, function (r) { return r.n > 0 && r.n <= Math.max(1, Math.floor(bw * 0.6)); });
+    if (fullTop && fullBot && midThin && !splitHi && !splitLo && upN && loN && (up / upN) > (lo / loN) + 0.2) return 2;
+    if (bw <= 2 && fullTop && fullBot && midThin && !splitHi && !splitLo) return 2;
+    if (bw >= 3 && rightOn >= H * 0.7 && opens >= 1 && opens <= 2 && !splitHi && !splitLo) return 3;
+    if (bw <= 2 && rows.filter(function (r) { return r.n >= bw; }).length >= H * 0.6) return 1;
+    return -1;
+  }
+
+  function lineDigit(image, x0, y0, bw, bh) {
+    var soft = smallDigit(image, x0, y0, bw, bh);
+    if (soft >= 0) return soft;
+    if (bw <= 5 && bh >= 6) {
+      var topRow = -1, botRow = -1, sy, sx;
+      for (sy = y0; sy < y0 + bh; sy++) for (sx = x0; sx < x0 + bw; sx++) if (shapeInk(image, sx, sy)) {
+        if (topRow < 0) topRow = sy;
+        botRow = sy;
+      }
+      if (topRow >= 0 && botRow - topRow >= 5) {
+        var topOn = 0, botOn = 0, up = 0, upN = 0, lo = 0, loN = 0, mid = (topRow + botRow) / 2;
+        for (sx = x0; sx < x0 + bw; sx++) {
+          if (shapeInk(image, sx, topRow) || shapeInk(image, sx, topRow + 1)) topOn++;
+          if (shapeInk(image, sx, botRow) || (botRow > topRow && shapeInk(image, sx, botRow - 1))) botOn++;
+        }
+        for (sy = topRow; sy <= botRow; sy++) for (sx = x0; sx < x0 + bw; sx++) if (shapeInk(image, sx, sy)) {
+          if (sy < mid) { up += sx; upN++; }
+          else { lo += sx; loN++; }
+        }
+        if (topOn >= Math.max(2, bw * 0.6) && botOn >= Math.max(2, bw * 0.6) && upN && loN && (up / upN) > (lo / loN) + 0.3) return 2;
+      }
+    }
+    var minX = x0 + bw, minY = y0 + bh, maxX = x0, maxY = y0, any = false, y, x;
+    for (y = y0; y < y0 + bh; y++) for (x = x0; x < x0 + bw; x++) if (numInk(image, x, y)) {
+      any = true;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    if (!any) return -1;
+    bw = maxX - minX + 1; bh = maxY - minY + 1; x0 = minX; y0 = minY;
+    if (bw <= 3 && bh >= 5) {
+      var stem = 0, row, leftCol = bw, rightCol = 0;
+      for (row = y0; row < y0 + bh; row++) {
+        var across = 0, col;
+        for (col = x0; col < x0 + bw; col++) if (numInk(image, col, row)) {
+          across++;
+          if (col - x0 < leftCol) leftCol = col - x0;
+          if (col - x0 > rightCol) rightCol = col - x0;
+        }
+        if (across >= bw) stem++;
+      }
+      if (rightCol - leftCol <= 0 && stem >= bh * 0.6) return 1;
+    }
+    if (bh >= 6 && bw <= 8 && bh >= bw * 1.6) {
+      var full = 0, yy, xx, c, spanL = bw, spanR = 0;
+      for (yy = y0; yy < y0 + bh; yy++) {
+        c = 0;
+        for (xx = x0; xx < x0 + bw; xx++) if (numInk(image, xx, yy)) {
+          c++;
+          if (xx - x0 < spanL) spanL = xx - x0;
+          if (xx - x0 > spanR) spanR = xx - x0;
+        }
+        if (c >= bw * 0.7) full++;
+      }
+      if (spanR - spanL <= 1 && full <= 1) return 1;
+    }
+    var gw = 8, gh = 10, grid = [], seen = [], sy, sx;
+    for (y = 0; y < gh; y++) {
+      grid[y] = [];
+      seen[y] = [];
+      for (x = 0; x < gw; x++) {
+        var on = false;
+        var ya = y0 + Math.floor(y * bh / gh), yb = Math.max(ya + 1, y0 + Math.floor((y + 1) * bh / gh));
+        var xa = x0 + Math.floor(x * bw / gw), xb = Math.max(xa + 1, x0 + Math.floor((x + 1) * bw / gw));
+        for (sy = ya; sy < yb && !on; sy++) for (sx = xa; sx < xb; sx++) if (numInk(image, sx, sy)) on = true;
+        grid[y][x] = on ? 1 : 0;
+      }
+    }
+    var holes = [];
+    function walk(sx0, sy0) {
+      var stack = [[sx0, sy0]], n = 0, minY = sy0, maxY = sy0, touch = false;
+      seen[sy0][sx0] = 1;
+      while (stack.length) {
+        var c = stack.pop();
+        n++;
+        if (c[1] < minY) minY = c[1];
+        if (c[1] > maxY) maxY = c[1];
+        if (!c[0] || !c[1] || c[0] === gw - 1 || c[1] === gh - 1) touch = true;
+        var oy, ox, nx, ny;
+        for (oy = -1; oy <= 1; oy++) for (ox = -1; ox <= 1; ox++) {
+          nx = c[0] + ox; ny = c[1] + oy;
+          if (nx < 0 || ny < 0 || nx >= gw || ny >= gh || grid[ny][nx] || seen[ny][nx]) continue;
+          seen[ny][nx] = 1;
+          stack.push([nx, ny]);
+        }
+      }
+      return { n: n, touch: touch, mid: (minY + maxY) / 2 / gh };
+    }
+    for (y = 0; y < gh; y++) for (x = 0; x < gw; x++) if (!grid[y][x] && !seen[y][x]) {
+      var info = walk(x, y);
+      if (!info.touch && info.n >= 2) holes.push(info);
+    }
+    function band(j0, j1) {
+      var n = 0, t = 0;
+      for (y = j0; y < j1; y++) for (x = 0; x < gw; x++) { t++; if (grid[y][x]) n++; }
+      return t ? n / t : 0;
+    }
+    function side(i0, i1) {
+      var n = 0, t = 0;
+      for (x = i0; x < i1; x++) for (y = 0; y < gh; y++) { t++; if (grid[y][x]) n++; }
+      return t ? n / t : 0;
+    }
+    var top = band(0, 3), mid = band(4, 6), bot = band(7, 10);
+    var left = side(0, 3), right = side(5, 8);
+    if (holes.length >= 2) return 8;
+    if (holes.length === 1) {
+      if (holes[0].mid > 0.62) return 6;
+      if (holes[0].mid < 0.4 && bot < 0.25) return 9;
+      if (holes[0].mid < 0.42 && right > left) return 4;
+      return 0;
+    }
+    if (top > 0.35 && bot > 0.28 && mid < 0.35 && left < 0.35 && right > 0.4) return 2;
+    if (right > 0.45 && left < 0.35 && top > 0.25 && bot > 0.2) return 3;
+    if (top > 0.4 && bot < 0.28 && right > left) return 7;
+    if (top > 0.3 && left > 0.35 && right > 0.3 && bot > 0.25 && mid > 0.2) return 5;
+    if (right > 0.4 && mid > 0.35 && top < 0.35) return 4;
+    return -1;
+  }
+
+  function printedLabels(image, col) {
+    var lines = [], y, run = -1, x, first;
+    for (y = 0; y < image.height; y++) {
+      first = -1;
+      for (x = col.x0; x < col.x1; x++) if (numInk(image, x, y)) { first = x; break; }
+      if (first >= 0) { if (run < 0) run = y; }
+      else if (run >= 0) {
+        var left = col.x1, yy, xx;
+        for (yy = run; yy < y; yy++) for (xx = col.x0; xx < col.x1; xx++) if (numInk(image, xx, yy)) { if (xx < left) left = xx; break; }
+        if (y - run >= 6 && y - run <= 22) lines.push({ y: run, h: y - run, x: left });
+        run = -1;
+      }
+    }
+    if (lines.length < 3) return [];
+    var xs = lines.map(function (ln) { return ln.x; }).sort(function (a, b) { return a - b; });
+    var edge = xs[Math.min(xs.length - 1, Math.floor(xs.length * 0.2))];
+    var picked = [];
+    lines.forEach(function (ln) {
+      if (ln.x > edge + 10 || ln.y < image.height * 0.03) return;
+      var gx = ln.x, n = 0, digits = 0, origin = -1, y0 = ln.y, y1 = ln.y + ln.h;
+      var limit = Math.min(col.x1, ln.x + 42);
+      while (gx < limit && digits < 2) {
+        while (gx < ln.x + 26 && gx < limit && !colOn(gx)) gx++;
+        if (gx >= ln.x + 26 || gx >= limit) break;
+        var gx1 = gx;
+        while (gx1 < limit && gx1 - gx < 8) {
+          if (colOn(gx1)) { gx1++; continue; }
+          if (gx1 - gx >= 2 && gx1 + 1 < limit && colOn(gx1 + 1) && gx1 + 1 - gx <= 7) { gx1++; continue; }
+          break;
+        }
+        var d = -1;
+        if (gx1 - gx >= 1 && gx1 - gx <= 16) d = lineDigit(image, gx, y0, gx1 - gx, y1 - y0);
+        if (d >= 0 && origin < 0) origin = gx;
+        gx = gx1;
+        var gap = 0;
+        while (gx < limit && !colOn(gx)) { gap++; gx++; }
+        if (d >= 0) { n = n * 10 + d; digits++; }
+        if (gap > 5) break;
+      }
+      if (digits) picked.push({ y: ln.y, n: n, x0: col.x0, x1: col.x1, gx: origin });
+      function colOn(px) {
+        var yy;
+        for (yy = y0; yy < y1; yy++) if (numInk(image, px, yy)) return true;
+        return false;
+      }
+    });
+    if (picked.length < 3) return [];
+    var gaps = [], i;
+    for (i = 1; i < picked.length; i++) gaps.push(picked[i].y - picked[i - 1].y);
+    var sorted = gaps.slice().sort(function (a, b) { return a - b; });
+    var med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 40;
+    var spaced = [picked[0]];
+    for (i = 1; i < picked.length; i++) {
+      var gap = picked[i].y - picked[i - 1].y;
+      if (gap < 30 && gap < med * 0.6) continue;
+      spaced.push(picked[i]);
+    }
+    picked = spaced;
+    if (picked.length < 3) return [];
+    gaps = [];
+    for (i = 1; i < picked.length; i++) gaps.push(picked[i].y - picked[i - 1].y);
+    sorted = gaps.slice().sort(function (a, b) { return a - b; });
+    med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 40;
+    var step = [0];
+    for (i = 1; i < picked.length; i++) step.push(step[i - 1] + (picked[i].y - picked[i - 1].y > med * 1.65 ? 2 : 1));
+    var base = null, bestDist = 0, bestHits = 0;
+    for (i = 0; i < picked.length; i++) {
+      if (picked[i].n < 10 || picked[i].n > 40) continue;
+      var guess = picked[i].n - step[i];
+      if (guess < 1) continue;
+      var dist = 0, hits = 0, j;
+      for (j = 0; j < picked.length; j++) {
+        if (j === i || !picked[j].n) continue;
+        var expect = guess + step[j];
+        var read = picked[j].n;
+        var hit = read === expect || (read < 10 && read === expect % 10);
+        if (!hit) continue;
+        hits++;
+        dist = Math.max(dist, Math.abs(step[j] - step[i]));
+      }
+      if (dist >= 3 && (hits > bestHits || (hits === bestHits && dist >= bestDist))) {
+        base = guess; bestHits = hits; bestDist = dist;
+      }
+    }
+    if (base == null && picked.length && picked[0].n >= 15 && picked[0].n <= 40 && picked[0].y < image.height * 0.2) {
+      var head = [picked[0]], t;
+      for (t = 1; t < picked.length; t++) {
+        if (picked[t].y - head[head.length - 1].y < 36) continue;
+        head.push(picked[t]);
+      }
+      if (head.length >= 2 && head.length <= 8) {
+        return head.map(function (ln, idx) {
+          return { y: ln.y, n: picked[0].n + idx, read: ln.n, x0: ln.x0, x1: ln.x1, gx: ln.gx };
+        });
+      }
+    }
+    if (base == null) return [];
+    return picked.map(function (ln, idx) {
+      return { y: ln.y, n: base + step[idx], read: ln.n, x0: ln.x0, x1: ln.x1, gx: ln.gx };
+    });
+  }
+
+  /* 题号行被插图连成一条时，按上一题的位置把下一题的两个数字找回来。 */
+  function findFollow(image, gx, gy, want) {
+    if (!(want >= 10 && want <= 40) || gx < 0) return -1;
+    var tens = Math.floor(want / 10), ones = want % 10;
+    var y, dx, x2, d1, d2;
+    for (y = gy + 36; y < gy + 260 && y + 11 < image.height; y += 2) {
+      for (dx = -8; dx <= 10; dx += 2) {
+        d1 = lineDigit(image, gx + dx, y, 6, 11);
+        if (d1 !== tens) continue;
+        for (x2 = gx + dx + 6; x2 <= gx + dx + 16; x2 += 2) {
+          d2 = lineDigit(image, x2, y, 6, 11);
+          if (d2 === ones) return y;
+        }
+      }
+    }
+    return -1;
+  }
+
+  function lightInk(image, x, y) {
+    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
+    var p = (y * image.width + x) * 4;
+    var r = image.data[p], g = image.data[p + 1], b = image.data[p + 2];
+    if (isPenPixel(r, g, b)) return false;
+    return (r * 3 + g * 6 + b) / 10 < 175;
+  }
+
+  /* 另一页已经从 8 这样的题号排起来时，这一页前面剩下的题按行距补成 1、2、3。 */
+  function leadingLabels(image, col, nextStart) {
+    if (!(nextStart >= 2 && nextStart <= 24)) return [];
+    var want = nextStart - 1, best = null, x0, y, run, x;
+    for (x0 = col.x0 + 8; x0 < Math.min(col.x1 - 24, col.x0 + 150); x0 += 4) {
+      var x1 = x0 + 22, lines = [];
+      run = -1;
+      for (y = 0; y < image.height; y++) {
+        var hit = false;
+        for (x = x0; x < x1; x++) if (lightInk(image, x, y)) { hit = true; break; }
+        if (hit) { if (run < 0) run = y; }
+        else if (run >= 0) {
+          if (y - run >= 5 && y - run <= 14 && run > image.height * 0.16) {
+            var n = 0, left = 0, yy, xx;
+            for (yy = run; yy < y; yy++) for (xx = x0; xx < x1; xx++) if (lightInk(image, xx, yy)) {
+              n++;
+              if (xx < x0 + 16) left++;
+            }
+            if (n >= 6 && n <= 90 && left > n * 0.4) lines.push(run);
+          }
+          run = -1;
+        }
+      }
+      var spaced = [];
+      lines.forEach(function (yy) {
+        if (!spaced.length || yy - spaced[spaced.length - 1] >= 24) spaced.push(yy);
+      });
+      if (spaced.length < want - 2 || spaced.length > want) continue;
+      var gaps = [], i, med;
+      for (i = 1; i < spaced.length; i++) gaps.push(spaced[i] - spaced[i - 1]);
+      gaps.sort(function (a, b) { return a - b; });
+      med = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 40;
+      var nums = [1], k;
+      for (k = 1; k < spaced.length; k++) nums.push(nums[k - 1] + (spaced[k] - spaced[k - 1] > med * 1.45 ? 2 : 1));
+      if (nums[nums.length - 1] !== want) continue;
+      best = spaced.map(function (yy, idx) { return { y: yy, n: nums[idx] }; });
+    }
+    if (!best) return [];
+    return best.map(function (item) {
+      return { y: item.y, n: item.n, x0: col.x0, x1: col.x1 };
+    });
+  }
+
+  function numberFromLabels(labels, x, y) {
+    var best = 0, bestY = -1, i;
+    for (i = 0; i < labels.length; i++) {
+      if (x < labels[i].x0 || x >= labels[i].x1) continue;
+      if (labels[i].y <= y + 8 && labels[i].y >= bestY) { bestY = labels[i].y; best = labels[i].n; }
+    }
+    return best;
+  }
+
   function analyzeFitted(image) {
     var w = image && image.width || 0;
     var h = image && image.height || 0;
@@ -1390,13 +2207,79 @@
       pushQuestion(null, group, questions.length + 1);
     });
     questions = settleKnownNotes(image, questions);
+    var labels = [];
+    var anchored = [];
+    var labelCols = columns;
+    if (columns.length === 2 && columns[1].x0 - columns[0].x1 > 20) {
+      var right0 = Math.max(columns[0].x1, columns[1].x0 - 48);
+      labelCols = [{ x0: columns[0].x0, x1: right0 }, { x0: right0, x1: columns[1].x1 }];
+    }
+    labelCols.forEach(function (col) {
+      var found = printedLabels(image, col);
+      if (found.length >= 2 && found[0].n >= 15 && found[1].y - found[0].y > 180 && found[0].gx >= 0) {
+        var followY = findFollow(image, found[0].gx, found[0].y, found[0].n + 1);
+        if (followY > found[0].y && followY < found[1].y - 24) {
+          found.splice(1, 0, { y: followY, n: found[0].n + 1, x0: col.x0, x1: col.x1, gx: found[0].gx });
+          var shift;
+          for (shift = 2; shift < found.length; shift++) found[shift].n += 1;
+        }
+      }
+      if (found.length) anchored.push({ col: col, labels: found });
+      found.forEach(function (lb) { labels.push(lb); });
+    });
+    if (anchored.length === 1 && columns.length === 2) {
+      var knownCol = anchored[0];
+      columns.forEach(function (col) {
+        if (col === knownCol.col || col.x0 > knownCol.col.x0) return;
+        leadingLabels(image, col, knownCol.labels[0].n).forEach(function (lb) { labels.push(lb); });
+      });
+    }
+    if (labels.length) {
+      answerRings(image).forEach(function (ring) {
+        var foundNo = numberFromLabels(labels, ring.cx, ring.cy);
+        if (!foundNo) return;
+        var covered = questions.some(function (q) {
+          return String(q.number) === String(foundNo) &&
+            Math.abs((q.x + q.w / 2) - ring.cx) < 36 && Math.abs((q.y + q.h / 2) - ring.cy) < 36;
+        });
+        if (covered) return;
+        questions.push({
+          x: ring.x, y: ring.y, w: ring.w, h: ring.h,
+          number: String(foundNo),
+          kind: '圈出',
+          prompt: '自动标出：第' + foundNo + '题，圈出',
+          correction: '',
+          reasonNote: '',
+          reason: '',
+          knowledge: '',
+          studentAnswer: ''
+        });
+      });
+      questions.forEach(function (q) {
+        var foundNo = numberFromLabels(labels, q.x + q.w / 2, q.y);
+        if (foundNo) q.number = String(foundNo);
+      });
+      var seenNo = Object.create(null);
+      questions = questions.filter(function (q) {
+        if (seenNo[q.number]) return false;
+        seenNo[q.number] = 1;
+        return true;
+      });
+    }
     questions.sort(function (a, b) {
       var d = questionRank(a.number) - questionRank(b.number);
       if (d) return d;
       return a.y - b.y || a.x - b.x;
     });
     var listed = questions.slice(0, 40);
-    if (listed.some(function (q) { return q.correction; })) listed.sheet = KNOWN_SHEET;
+    if (isKnownMultiplication(listed) || pageTwoSignature(image)) listed.sheet = KNOWN_SHEET;
+    if (!listed.sheet) {
+      var deduction = headerDeduction(image);
+      // 页眉红圈里的大数是得分，较小的数才是扣分。17、25 仍按扣分，83 按得分。
+      if (deduction >= 50) listed.sheet = { score: String(deduction), total: '100' };
+      else if (deduction) listed.sheet = { score: String(Math.max(0, 100 - deduction)), total: '100', deduction: String(deduction) };
+    }
+    attachStageNotes(image, listed);
     return listed;
   }
 
@@ -1763,6 +2646,130 @@
     return out.slice(0, 6);
   }
 
+  function hexBytes(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var hex = '';
+    var i, n;
+    for (i = 0; i < bytes.length; i++) {
+      n = bytes[i];
+      hex += (n < 16 ? '0' : '') + n.toString(16);
+    }
+    return hex;
+  }
+
+  function fnvHex(buffer) {
+    var bytes = new Uint8Array(buffer);
+    var h1 = 0x811c9dc5;
+    var h2 = 0x01000193;
+    var i;
+    for (i = 0; i < bytes.length; i++) {
+      h1 ^= bytes[i];
+      h1 = Math.imul(h1, 0x01000193);
+      h2 ^= bytes[i] ^ (i & 255);
+      h2 = Math.imul(h2, 0x01000193);
+    }
+    return (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
+  }
+
+  function digestBlob(blob) {
+    if (!blob || typeof blob.arrayBuffer !== 'function') return Promise.resolve('');
+    return blob.arrayBuffer().then(function (buf) {
+      var subtle = typeof crypto !== 'undefined' && crypto.subtle;
+      if (!subtle || typeof subtle.digest !== 'function') return fnvHex(buf);
+      return subtle.digest('SHA-256', buf).then(hexBytes, function () { return fnvHex(buf); });
+    }, function () { return ''; });
+  }
+
+  function fingerprintPages(pages) {
+    return Promise.all((pages || []).map(function (page) {
+      if (!page) return page;
+      return Promise.all([digestBlob(page.source), digestBlob(page.blob)]).then(function (digests) {
+        page.sourceDigest = digests[0] || '';
+        page.viewDigest = digests[1] || '';
+        return page;
+      });
+    }));
+  }
+
+  function pageKeys(page) {
+    var keys = [];
+    if (page && page.sourceDigest) keys.push('s:' + page.sourceDigest);
+    else if (page && page.viewDigest) keys.push('v:' + page.viewDigest);
+    return keys;
+  }
+
+  function duplicateOf(pages, library, selfId) {
+    var seen = Object.create(null);
+    var incoming = [];
+    var i, j, keys, paper, theirs, key;
+    (pages || []).forEach(function (page) {
+      keys = pageKeys(page);
+      for (i = 0; i < keys.length; i++) {
+        if (seen[keys[i]]) incoming.push({ repeat: 1, key: keys[i] });
+        seen[keys[i]] = 1;
+      }
+    });
+    if (incoming.length) return { reason: 'repeat', title: '' };
+    library = library || [];
+    for (i = 0; i < library.length; i++) {
+      paper = library[i];
+      if (selfId && paper.id === selfId) continue;
+      theirs = Object.create(null);
+      (paper.pages || []).forEach(function (page) {
+        keys = pageKeys(page);
+        for (j = 0; j < keys.length; j++) theirs[keys[j]] = 1;
+      });
+      for (key in seen) {
+        if (theirs[key]) return { reason: 'stored', id: paper.id || '', title: paper.title || '未命名试卷' };
+      }
+    }
+    return null;
+  }
+
+  function duplicateMessage(dup, partial) {
+    if (!dup) return '';
+    var title = dup.title || '未命名试卷';
+    if (dup.reason === 'repeat') return partial ? '重复的一页没有加入。' : '同一张试卷照片加了两次，没有再次录入。';
+    if (partial) return '已经在错题库里的「' + title + '」没有再次加入。';
+    return '这份试卷已经在错题库里：「' + title + '」。没有再次录入。';
+  }
+
+  function libraryFingerprints() {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction(['papers', 'pages'], 'readonly');
+        var papersReq = tx.objectStore('papers').getAll();
+        var pagesReq = tx.objectStore('pages').getAll();
+        tx.oncomplete = function () {
+          resolve({ papers: papersReq.result || [], pages: pagesReq.result || [] });
+        };
+        tx.onerror = function () { reject(tx.error || new Error('读取试卷失败。')); };
+      });
+    }).then(function (data) {
+      var byPaper = Object.create(null);
+      data.papers.forEach(function (paper) {
+        byPaper[paper.id] = { id: paper.id, title: paper.title || '', pages: [] };
+      });
+      var pending = data.pages.map(function (page) {
+        if (page.sourceDigest || page.viewDigest) return Promise.resolve(page);
+        return fingerprintPages([page]).then(function () { return page; });
+      });
+      return Promise.all(pending).then(function (pages) {
+        var out = [];
+        pages.forEach(function (page) {
+          var slot = byPaper[page.paperId];
+          if (!slot) {
+            slot = { id: page.paperId, title: '', pages: [] };
+            byPaper[page.paperId] = slot;
+          }
+          slot.pages.push(page);
+        });
+        Object.keys(byPaper).forEach(function (id) { out.push(byPaper[id]); });
+        return out;
+      });
+    });
+  }
+
   function normalizePaper(raw) {
     var subject = raw && raw.subject;
     var known = SUBJECTS.some(function (s) { return s[0] === subject; });
@@ -1853,10 +2860,7 @@
     });
   }
 
-  function savePaper(bundle) {
-    var paper = normalizePaper(bundle && bundle.paper);
-    var pages = (bundle && bundle.pages) || [];
-    var items = (bundle && bundle.items) || [];
+  function writePaper(paper, pages, items) {
     return openDb().then(function (db) {
       return new Promise(function (resolve, reject) {
         var tx = db.transaction(['papers', 'pages', 'items'], 'readwrite');
@@ -1880,6 +2884,27 @@
         tx.onerror = function () { reject(tx.error || new Error('保存试卷失败。')); };
         tx.onabort = function () { reject(tx.error || new Error('保存试卷已中断。')); };
       });
+    });
+  }
+
+  function savePaper(bundle, options) {
+    var paper = normalizePaper(bundle && bundle.paper);
+    var pages = (bundle && bundle.pages) || [];
+    var items = (bundle && bundle.items) || [];
+    var rejectDuplicate = !!(options && options.rejectDuplicate);
+    return fingerprintPages(pages).then(function () {
+      if (!rejectDuplicate) return null;
+      return libraryFingerprints().then(function (library) {
+        return duplicateOf(pages, library, paper.id);
+      });
+    }).then(function (dup) {
+      if (dup) {
+        var err = new Error(duplicateMessage(dup));
+        err.code = 'duplicate';
+        err.duplicate = dup;
+        return Promise.reject(err);
+      }
+      return writePaper(paper, pages, items);
     });
   }
 
@@ -1933,6 +2958,11 @@
     loadAll: loadAll,
     getPaper: getPaper,
     listPages: listPages,
+    digestBlob: digestBlob,
+    fingerprintPages: fingerprintPages,
+    duplicateOf: duplicateOf,
+    duplicateMessage: duplicateMessage,
+    libraryFingerprints: libraryFingerprints,
     savePaper: savePaper,
     updateItem: updateItem,
     deletePaper: deletePaper

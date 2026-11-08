@@ -331,4 +331,34 @@ check('认识更大的数第3、4页按这6道错题写，整份合在一起', f
   assert.ok(both.text.indexOf('得分 83') < 0);
 });
 
-console.log(passed + ' passed');
+check('同一份照片判为重复试卷，另一份照片可以录入', function () {
+  var stored = [{ id: 'p1', title: '五年级阶段巩固', pages: [{ sourceDigest: 'aaa' }, { sourceDigest: 'bbb' }] }];
+  var again = pq.duplicateOf([{ sourceDigest: 'bbb' }], stored, '');
+  assert.strictEqual(again.reason, 'stored');
+  assert.strictEqual(again.title, '五年级阶段巩固');
+  assert.ok(pq.duplicateMessage(again).indexOf('五年级阶段巩固') >= 0);
+  assert.strictEqual(pq.duplicateOf([{ sourceDigest: 'ccc' }], stored, ''), null);
+  var twice = pq.duplicateOf([{ sourceDigest: 'ccc' }, { sourceDigest: 'ccc' }], stored, '');
+  assert.strictEqual(twice.reason, 'repeat');
+  assert.strictEqual(pq.duplicateOf([{ sourceDigest: 'aaa' }], stored, 'p1'), null);
+});
+
+Promise.resolve().then(function () {
+  var one = new Blob(['page-a']);
+  var two = new Blob(['page-a']);
+  var other = new Blob(['page-b']);
+  return pq.digestBlob(one).then(function (a) {
+    return pq.digestBlob(two).then(function (b) {
+      return pq.digestBlob(other).then(function (c) {
+        assert.ok(a && a === b);
+        assert.notStrictEqual(a, c);
+        passed++;
+        console.log('ok ' + passed + ' 同一张照片的摘要相同');
+        console.log(passed + ' passed');
+      });
+    });
+  });
+}).catch(function (err) {
+  console.error(err);
+  process.exit(1);
+});
