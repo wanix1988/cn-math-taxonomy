@@ -1,5 +1,6 @@
-/* 中文按 RUBRIC（硬笔楷书量表：笔法 30 / 结体 50 / 章法 20）逐字评判，
- * 英文按字母书写六维来看。不识别写的是哪个汉字，笔顺、起收笔、部件比例不评判。
+/* 中文按硬笔楷书量表（笔法 30 / 结体 50 / 章法 20）逐字评判，
+ * 英文按衡水体量表（笔画 30 / 字母 40 / 章法 30）逐字母评判，中英混排仍用六维概览。
+ * 不识别写的是哪个字或字母，笔顺、起收笔、部件比例、具体占格不评判。
  * 评价和标注位置是纯函数，浏览器与 Node 共用。window.CnmHandwriting。 */
 (function (root, factory) {
   var api = factory();
@@ -171,6 +172,135 @@
     ],
     advanced: '横画统一向右上取势约 5°，撇捺适度舒展，中宫收紧、四周留白均匀；抄写时先定字高再落笔。',
     note: '本量表只按照片里可测量的几何与墨色特征评分，用于定位练字重点，不等同于考级成绩；不识别具体汉字，因此字形正误、笔顺、起收笔、部件比例等须由教师或可读字的视觉模型复核。'
+  };
+
+  /* 英文「衡水体」（手写印刷体）评价量表。
+   * 衡水体不是国家或行业统一标准，而是源于衡水中学教学实践、被中小学英语字帖和
+   * 中高考备考资料广泛采用的书写规范；可对照《义务教育英语课程标准（2022 年版）》
+   * 对字母、大小写、标点、词距的要求，以及书面表达「卷面整洁、书写工整」的要求。
+   * 同样只收录像素可观测的条款；必须先认出具体字母才能判断的项目列入 unmeasurable。 */
+  var RUBRIC_EN = {
+    id: 'hengshui-print-hand-rubric-v1',
+    version: '1.0',
+    name: '衡水体英文书写评价量表',
+    stage: '手写印刷体（衡水体）· 中小学英语考试卷面书写',
+    sources: [
+      {
+        title: '《义务教育英语课程标准（2022 年版）》',
+        point: '语言技能「写」要求字母书写规范、大小写与标点使用正确、词与词之间留有空格，书面表达做到格式与行款规范。',
+        url: ''
+      },
+      {
+        title: '衡水体书写规范（教学实践总结的十要素）',
+        point: '字母字形、笔顺、格位、宽度、高宽对应、斜度（与线夹角 75—85°，即向右微倾约 5—10°）、不连写、字母间距约 1mm、词距约 3mm、行距均等；字母底部贴线、顶部留白约 3/5。',
+        url: 'https://www.sohu.com/a/279175871_616026'
+      },
+      {
+        title: '中考英语书写规范要求（四线三格、倾斜与词距）',
+        point: '大写占上中两格，小写按中格／上伸／下伸分组；全篇倾斜方向与角度一致；词内字母紧凑清晰，词间约一个小写 o 宽；标点规范、卷面整洁。',
+        url: 'https://www.jinbojiaoyu.com/news/34394'
+      },
+      {
+        title: '华夏万卷《初中英语同步字帖·衡水体》书写技巧',
+        point: '圆润饱满、竖笔直、起收笔不带钩、字母高度与大小及间距词距统一、字母间无连笔不交叉、字距约 1mm、词距约一个 a 的宽度。',
+        url: ''
+      }
+    ],
+    dimensions: [
+      { key: 'stroke', label: '笔画', full: '笔画·线条', weight: 30, criterion: '线条清晰匀净、粗细一致，字母独立书写不连笔、不交叉，无涂改墨块。' },
+      { key: 'structure', label: '字母', full: '字母·规格', weight: 40, criterion: '同类字母高度统一、底部落在同一基线，全篇斜度一致且向右微倾 5—10°，宽窄匀称圆润饱满。' },
+      { key: 'layout', label: '章法', full: '间距·卷面', weight: 30, criterion: '词内字距约 1mm 且均匀，词距约一个字母宽，行距合宜、基线平直、行首对齐、四周留白。' }
+    ],
+    grades: [
+      { min: 90, label: '优秀', note: '合于衡水体规范，可作本行范字' },
+      { min: 80, label: '良好', note: '基本达标，个别条款需打磨' },
+      { min: 65, label: '合格', note: '卷面清晰可读，仍需按条款练习' },
+      { min: 0, label: '待改进', note: '有明显失度之处，先按顺序逐条改' }
+    ],
+    items: [
+      {
+        code: 'E1', dim: 'stroke', name: '线条清晰', weight: 8,
+        criterion: '笔画落纸实在、颜色清楚，无虚浮断笔；衡水体用 0.5mm 笔匀速书写，线条粗细一致。',
+        advice: '落笔稳、行笔匀速，把每一笔写完整，不要「飘」着划过去；太淡的字母补写清楚。',
+        train: '慢写一排 l 与 o，检查首尾墨色是否一致。'
+      },
+      {
+        code: 'E2', dim: 'stroke', name: '用力匀净', weight: 6,
+        criterion: '同一页提按力度一致，笔画粗细接近，不忽轻忽重。',
+        advice: '整页保持同一种握笔力度；衡水体接近印刷体，不靠提按做粗细变化。',
+        train: '抄一行 minimum，比较各字母墨色深浅。'
+      },
+      {
+        code: 'E3', dim: 'stroke', name: '笔画洁净', weight: 6,
+        criterion: '笔画交代清楚，不涂成墨块，卷面无乱画。',
+        advice: '写错用一条细横线轻轻划去，不要来回涂抹成黑块。',
+        train: '练「一次写成」，落笔前看清范字再下笔。'
+      },
+      {
+        code: 'E4', dim: 'stroke', name: '不连笔不交叉', weight: 10,
+        criterion: '字母独立书写、无连写趋势，相邻字母不粘连、不交叉，每个字母是一个独立字形。',
+        advice: '衡水体最大的特点是字母之间不连笔：写完一个字母抬笔再写下一个，字母之间留一条细缝，不要一笔带过。',
+        train: '慢写 after、dream，逐个字母分开，确认没有连笔与交叉。'
+      },
+      {
+        code: 'E5', dim: 'structure', name: '大小同高', weight: 12,
+        criterion: '同类字母高度统一：矮字母占中间一格，大写与上伸字母约占上两格，同一组内不忽大忽小。',
+        advice: '先定本行的「矮字母高」与「大写／上伸字母高」两个尺寸，同类字母按同一高度写，不要随手放大或缩小。',
+        train: '在四线三格上写一行 a b c d，检查 a、c 等高，b、d 等高。'
+      },
+      {
+        code: 'E6', dim: 'structure', name: '底部贴线', weight: 12,
+        criterion: '字母底部落在同一条基线上，不飘在线上、不上下跳动。',
+        advice: '让每个字母的下缘贴住横线（或答题卡的那一条线）再抬笔，写完眯眼看整行底部是否成一条线。',
+        train: '用一线格抄一句，检查每个字母底部是否都压在线上。'
+      },
+      {
+        code: 'E7', dim: 'structure', name: '斜度统一', weight: 10,
+        criterion: '全篇倾斜方向与角度一致（衡水体建议统一向右微倾约 5—10°），不有的直有的斜、不写成大斜体。',
+        advice: '固定一种右倾角度写完整页；不要有的字母直立、有的字母倾斜，也不要写成 30° 以上的大斜体。',
+        train: '在斜线格上写一行 minimum，用尺子量各字母主轴是否平行。'
+      },
+      {
+        code: 'E8', dim: 'structure', name: '宽窄匀称', weight: 6,
+        criterion: '字母宽度大致相同（I、J、L、M、W 等除外），不过分拉宽或挤窄。',
+        advice: '把 o 的宽度当作一把尺子，其余字母向它看齐；圆润饱满，但不要写成尖角或细长条。',
+        train: '写 a o c e 一排，比较四个字母的外框宽度。'
+      },
+      {
+        code: 'E9', dim: 'layout', name: '字距匀称', weight: 8,
+        criterion: '同一单词内字母间距均匀、约 1mm，紧凑而不粘连。',
+        advice: '词内字母之间留一条固定的细缝；写快时容易越写越挤，写到词末回头看一眼。',
+        train: '抄 hello，量相邻字母的空档是否接近。'
+      },
+      {
+        code: 'E10', dim: 'layout', name: '词距合宜', weight: 8,
+        criterion: '单词之间留约一个小写 o（约一个字母）的宽度，各词空档一致。',
+        advice: '词与词之间空出一个字母的宽度：太近会连成一团，太远显得松散；标点后面也要空一格。',
+        train: '抄 I love English，检查三处词距是否等宽。'
+      },
+      {
+        code: 'E11', dim: 'layout', name: '行距与行气', weight: 7,
+        criterion: '行距不少于约 1.45 倍字高，整行基线平直，上下行的长笔不交错。',
+        advice: '下一行起笔前留出约一个字母的高度，别让 g、y、f 的长笔压到下一行；沿横线写平，不要越写越往下。',
+        train: '用一线格写三行，检查每行下缘是否平行、长笔是否越行。'
+      },
+      {
+        code: 'E12', dim: 'layout', name: '卷面整洁', weight: 7,
+        criterion: '行首对齐、四周留白、不越行、无涂改乱画。',
+        advice: '每行从同一条竖线起笔，纸边留一指宽；写不下的单词整个移到下一行，不要硬塞或拆开。',
+        train: '写完检查行首是否成一条竖线、四条纸边有没有出格的笔画。'
+      }
+    ],
+    unmeasurable: [
+      { name: '具体字母的字形正误、拼写与大小写使用规则', reason: '本工具不识别写的是哪个字母，也不与范字比对。' },
+      { name: '圆润饱满、a/g/t/r 起收笔不带钩、i/j 圆点等笔画形态', reason: '需要先认出字母，再判断圆弧是否闭合、收笔是否带钩。' },
+      { name: '四线三格的具体占格与上伸／下伸字母分类', reason: '照片里不一定有四线格，且需要先认出字母属于哪一组。' },
+      { name: '标点符号种类（英语句号实心点、禁中文句号）与标点后空格', reason: '像素轮廓无法可靠区分标点种类。' },
+      { name: '笔顺、运笔动作与是否真的连笔', reason: '静态照片只能看到相邻字母有没有粘连，看不到书写顺序与抬笔。' },
+      { name: '单词移行、段首缩进、坐姿执笔、笔尖粗细与书写速度', reason: '需要读懂内容或不在照片可见范围内。' }
+    ],
+    advanced: '统一向右微倾 5—10°，用 0.5mm 中性笔匀速慢写；字母底部贴线、大写占上两格不顶线；字距约 1mm、词距一个 o 宽；圆润饱满、起收笔不带钩、全程不连笔。',
+    note: '衡水体是教学实践中形成的书写规范，不是国家或行业统一标准；考试卷面分由阅卷教师判定，本量表分数只用于定位练字重点。本工具不识别具体字母，也不量绝对倾斜角度，只判全篇斜度是否一致；字母正误与拼写、大小写与标点规则、具体占格、圆润饱满与起收笔、笔顺运笔、单词移行、坐姿执笔等须由教师或能读字的视觉模型复核。'
   };
 
   var DIM_LABEL = {
@@ -513,7 +643,7 @@
         stack.length = 0;
         stack.push(start);
         seen[start] = 1;
-        var area = 0, minX = x, maxX = x, minY = y, maxY = y, sumL = 0, sumX = 0, sumY = 0;
+        var area = 0, minX = x, maxX = x, minY = y, maxY = y, sumL = 0, sumC = 0, sumX = 0, sumY = 0;
         while (stack.length) {
           var cur = stack.pop();
           var cy = (cur / w) | 0;
@@ -524,7 +654,9 @@
           if (cy < minY) minY = cy;
           if (cy > maxY) maxY = cy;
           var pi = cur * 4;
-          sumL += luma(data[pi], data[pi + 1], data[pi + 2]);
+          var pr = data[pi], pg = data[pi + 1], pb = data[pi + 2];
+          sumL += luma(pr, pg, pb);
+          sumC += Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
           sumX += cx;
           sumY += cy;
           var oy, ox, nx, ny, ni;
@@ -548,10 +680,59 @@
           h: maxY - minY + 1,
           area: area,
           lum: sumL / area,
+          chr: sumC / area,
           cx: sumX / area,
           cy: sumY / area
         });
       }
+    }
+    return list;
+  }
+
+  /* 抠掉格线后，跨过横线的字母（l、g、d 等）会被切成上下两块。
+   * 这里把 x 高度重叠、垂直只差几像素的碎片重新拼成一个字，避免同一行被
+   * 拆成两条「半行」而在后面的行高过滤里整行丢失。 */
+  function mergeCutGlyphs(raw) {
+    if (raw.length < 2) return raw;
+    var medH = median(raw.map(function (g) { return g.h; })) || 1;
+    var maxH = Math.max(14, medH * 2.2);
+    var list = raw.slice().sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+    var pass = 0, changed = true;
+    while (changed && pass++ < 3) {
+      changed = false;
+      var out = [], used = new Uint8Array(list.length), i, j;
+      for (i = 0; i < list.length; i++) {
+        if (used[i]) continue;
+        var a = list[i], best = -1, bestGap = 99;
+        for (j = i + 1; j < list.length; j++) {
+          if (used[j]) continue;
+          var b = list[j];
+          var gap = b.y - (a.y + a.h);
+          if (gap > 4) break;
+          if (gap < -3) continue;
+          var ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          if (ox < Math.min(a.w, b.w) * 0.55) continue;
+          var nh = Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y);
+          if (nh > maxH) continue;
+          if (gap < bestGap) { bestGap = gap; best = j; }
+        }
+        if (best < 0) { out.push(a); continue; }
+        var c = list[best];
+        used[best] = 1;
+        var x = Math.min(a.x, c.x), y = Math.min(a.y, c.y);
+        var x2 = Math.max(a.x + a.w, c.x + c.w), y2 = Math.max(a.y + a.h, c.y + c.h);
+        var area = a.area + c.area;
+        list[i] = {
+          x: x, y: y, w: x2 - x, h: y2 - y, area: area,
+          lum: (a.lum * a.area + c.lum * c.area) / area,
+          chr: (a.chr * a.area + c.chr * c.area) / area,
+          cx: (a.cx * a.area + c.cx * c.area) / area,
+          cy: (a.cy * a.area + c.cy * c.area) / area
+        };
+        out.push(list[i]);
+        changed = true;
+      }
+      list = out;
     }
     return list;
   }
@@ -572,6 +753,95 @@
     }
     if (topN < 4 || botN < 4) return null;
     return (topX / topN - botX / botN) / g.h;
+  }
+
+  /* 四线格、横线信纸、表格框线会和笔迹粘成一条超长连通块，整行字随后被
+   * isRuling 当成格线丢掉。这里先把细长的横线/竖线从掩膜里抠掉，同时记录
+   * 格线版式：等距横线且几乎没有竖线是英文四线格，横竖都成格是中文方格纸。 */
+  function removeRulingLines(mask, w, h) {
+    var rows = new Uint32Array(h), cols = new Uint32Array(w), x, y, k;
+    for (y = 0; y < h; y++) {
+      for (x = 0; x < w; x++) if (mask[y * w + x]) { rows[y]++; cols[x]++; }
+    }
+    var hLimit = Math.max(20, Math.round(w * 0.48));
+    var vLimit = Math.max(20, Math.round(h * 0.48));
+    var hRows = [], vCols = [], removed = 0;
+    for (y = 0; y < h; y++) if (rows[y] >= hLimit) hRows.push(y);
+    for (x = 0; x < w; x++) if (cols[x] >= vLimit) vCols.push(x);
+
+    function centers(list) {
+      if (!list.length) return [];
+      var out = [], a = list[0], p = list[0], i;
+      for (i = 1; i <= list.length; i++) {
+        if (i < list.length && list[i] === p + 1) { p = list[i]; continue; }
+        out.push((a + p) / 2);
+        if (i < list.length) { a = list[i]; p = list[i]; }
+      }
+      return out;
+    }
+    function even(list) {
+      if (list.length < 4) return false;
+      var gaps = [], i;
+      for (i = 1; i < list.length; i++) gaps.push(list[i] - list[i - 1]);
+      var m = median(gaps);
+      return m >= 4 && stdev(gaps) <= m * 0.32;
+    }
+    var hc = centers(hRows);
+    /* 被判为格线的整行都清掉：格线常被笔画截成短段，只删长段会留下小方块碎片，
+     * 反而把英文字母伪装成方块汉字。 */
+    for (k = 0; k < hRows.length; k++) {
+      y = hRows[k];
+      for (x = 0; x < w; x++) {
+        if (!mask[y * w + x]) continue;
+        mask[y * w + x] = 0;
+        removed++;
+      }
+    }
+    /* 竖线：横线清掉后重算列投影，免得把横线的累计误当成竖线。 */
+    cols = new Uint32Array(w);
+    for (x = 0; x < w; x++) for (y = 0; y < h; y++) if (mask[y * w + x]) cols[x]++;
+    vCols = [];
+    for (x = 0; x < w; x++) if (cols[x] >= vLimit) vCols.push(x);
+    var vc = centers(vCols);
+    for (k = 0; k < vCols.length; k++) {
+      x = vCols[k];
+      for (y = 0; y < h; y++) {
+        if (!mask[y * w + x]) continue;
+        mask[y * w + x] = 0;
+        removed++;
+      }
+    }
+    return {
+      hLines: hc.length, vLines: vc.length,
+      hEven: even(hc), vEven: even(vc), removed: removed
+    };
+  }
+
+  /* 印刷标题（如「英语作业纸」「硬笔书法」）不是手写，不该按量表批注。
+   * 印刷字常用彩色油墨，手写多为中性黑灰；只在页面最上方、字数不多、
+   * 且和正文墨色明显不同时跳过，避免误删整页蓝色钢笔字。 */
+  function skipPrintedHeaders(lines, H) {
+    var chrs = [], i;
+    lines.forEach(function (ln) {
+      ln.glyphs.forEach(function (g) { if (!g.punct && g.chr != null) chrs.push(g.chr); });
+    });
+    if (chrs.length < 12) return 0;
+    var cut = Math.max(22, median(chrs) * 2.4);
+    var neutral = chrs.filter(function (c) { return c < cut * 0.6; }).length;
+    if (neutral < chrs.length * 0.45) return 0;
+    var drop = [], skipped = 0;
+    for (i = 0; i < Math.min(2, lines.length); i++) {
+      var ln = lines[i];
+      if (ln.cy > H * 0.22) break;
+      var pool = ln.glyphs.filter(function (g) { return !g.punct; });
+      if (pool.length < 2 || pool.length > 14) continue;
+      var colored = pool.filter(function (g) { return g.chr != null && g.chr >= cut; }).length;
+      if (colored / pool.length < 0.6) continue;
+      skipped += pool.length;
+      drop.push(i);
+    }
+    for (i = drop.length - 1; i >= 0; i--) lines.splice(drop[i], 1);
+    return skipped;
   }
 
   function isRuling(g, w, h) {
@@ -636,7 +906,7 @@
 
   function glyphFromInk(image, mask, x0, y0, x1, y1) {
     var w = image.width, data = image.data;
-    var area = 0, sumL = 0, sumX = 0, sumY = 0;
+    var area = 0, sumL = 0, sumC = 0, sumX = 0, sumY = 0;
     var minX = x1, minY = y1, maxX = x0 - 1, maxY = y0 - 1;
     var y, x, i, p;
     for (y = y0; y < y1; y++) {
@@ -649,7 +919,9 @@
         if (y < minY) minY = y;
         if (y > maxY) maxY = y;
         p = i * 4;
-        sumL += luma(data[p], data[p + 1], data[p + 2]);
+        var pr = data[p], pg = data[p + 1], pb = data[p + 2];
+        sumL += luma(pr, pg, pb);
+        sumC += Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
         sumX += x;
         sumY += y;
       }
@@ -662,6 +934,7 @@
       h: maxY - minY + 1,
       area: area,
       lum: sumL / area,
+      chr: sumC / area,
       cx: sumX / area,
       cy: sumY / area
     };
@@ -830,29 +1103,68 @@
     return 'unknown';
   }
 
-  function detectScript(lines) {
-    var zh = 0, en = 0, i, kind;
+  /* 语种判定：行数投票容易被格线碎片和印刷标题带偏，所以同时看
+   * 字形宽高比、词间空隙和格线版式，并把依据写进报告供人工复核。 */
+  function detectScript(lines, ruling) {
+    var zh = 0, en = 0, i, kind, count;
     for (i = 0; i < lines.length; i++) {
       kind = classifyLine(lines[i]);
       lines[i].kind = kind;
-      if (kind === 'zh') zh++;
-      else if (kind === 'en') en++;
+      count = lines[i].glyphs.filter(function (g) { return !g.punct; }).length;
+      if (kind === 'zh') zh += count;
+      else if (kind === 'en') en += count;
     }
+    var aspects = [], wordy = 0;
+    lines.forEach(function (ln) {
+      var gs = ln.glyphs.filter(function (g) { return !g.punct; });
+      gs.forEach(function (g) { aspects.push(g.w / Math.max(1, g.h)); });
+      if (gs.length >= 4 && splitGaps(gapsOf(gs)).word.length >= 2) wordy++;
+    });
+    var aspect = median(aspects);
+    var enScore = 0, zhScore = 0, reason = '';
+    if (en > zh * 1.3 && en > 0) enScore += 2;
+    else if (zh > en * 1.3 && zh > 0) zhScore += 2;
+    else if (en > 0 && zh > 0) { enScore += 1; zhScore += 1; }
+    if (aspect > 0 && aspect < 0.66) enScore += 2;
+    else if (aspect >= 0.82) zhScore += 2;
+    else if (aspect >= 0.72) zhScore += 1;
+    if (wordy >= Math.max(2, Math.ceil(lines.length * 0.4))) enScore += 1;
+    /* 横线成排、竖线很少，是四线格 / 横线纸；中文方格纸横竖都成排。
+     * 四线格的线常被笔画截断成短段，间距不一定等距，所以看线的条数而不是等距。 */
+    var ruledEn = ruling && ruling.hLines >= 8 && ruling.vLines < 3;
+    var ruledZh = ruling && ruling.vLines >= 4 && ruling.hLines >= 4;
+    if (ruledEn) enScore += 3;
+    if (ruledZh) zhScore += 2;
+    var notSquareZh = !(zh > en * 2 && aspect >= 0.86);
     var script;
-    if (zh && en && Math.min(zh, en) / Math.max(zh, en) >= 0.5) script = 'mixed';
-    else if (en > zh) script = 'en';
-    else if (zh > 0) script = 'zh';
-    else {
-      var aspects = [];
-      lines.forEach(function (ln) {
-        ln.glyphs.forEach(function (g) {
-        if (g.punct) return;
-        aspects.push(g.w / Math.max(1, g.h));
-      });
-      });
-      script = median(aspects) < 0.62 ? 'en' : 'zh';
+    if (ruledEn && aspect < 0.9 && notSquareZh && !ruledZh) {
+      script = 'en';
+      reason = '识别到四线格 / 横线纸，按英文衡水体量表评判';
+    } else if (ruledZh && aspect >= 0.7) {
+      script = 'zh';
+      reason = '识别到方格 / 田字格，按中文硬笔楷书量表评判';
+    } else if (enScore >= zhScore + 2) {
+      script = 'en';
+      reason = '窄字母多、有词间空隙';
+    } else if (zhScore >= enScore + 2) {
+      script = 'zh';
+      reason = '方块字多、字距均匀';
+    } else if (en > 0 && zh > 0) {
+      script = 'mixed';
+      reason = '中英文特征都明显';
+    } else {
+      script = en > zh ? 'en' : 'zh';
+      reason = '按整体字形宽高比判断';
     }
-    return script;
+    return {
+      script: script,
+      evidence: {
+        zhVotes: zh, enVotes: en, aspect: Math.round(aspect * 100) / 100,
+        wordyLines: wordy, hLines: ruling ? ruling.hLines : 0,
+        vLines: ruling ? ruling.vLines : 0, hEven: !!(ruling && ruling.hEven),
+        enScore: enScore, zhScore: zhScore, reason: reason
+      }
+    };
   }
 
   function boxOf(g, pad, W, H) {
@@ -1348,16 +1660,18 @@
     return { ok: false, message: message };
   }
 
-  function rubricItem(code) {
+  function rubricItem(code, rubric) {
+    var items = (rubric || RUBRIC).items;
     var i;
-    for (i = 0; i < RUBRIC.items.length; i++) if (RUBRIC.items[i].code === code) return RUBRIC.items[i];
+    for (i = 0; i < items.length; i++) if (items[i].code === code) return items[i];
     return null;
   }
 
-  function gradeOf(score) {
+  function gradeOf(score, rubric) {
+    var grades = (rubric || RUBRIC).grades;
     var i;
-    for (i = 0; i < RUBRIC.grades.length; i++) if (score >= RUBRIC.grades[i].min) return RUBRIC.grades[i];
-    return RUBRIC.grades[RUBRIC.grades.length - 1];
+    for (i = 0; i < grades.length; i++) if (score >= grades[i].min) return grades[i];
+    return grades[grades.length - 1];
   }
 
   function deviationScore(value, tolerance, scale, floor) {
@@ -1366,6 +1680,51 @@
 
   /* 按硬笔楷书量表逐字评判。行款类条款按所在行评定，不生成逐字圈注，
    * 避免出现「这个字要改行距」这种不准确的批注；圈注只标字本身的问题。 */
+  /* 行级判据的公共尺度。
+   * ① 格线会把一行字切成上下两条「半行」，直接按相邻 lines 算行距会误判成「太挤」，
+   *    所以先把中心距小于 1.15 字高的相邻行并回同一个视觉行。
+   * ② 短行（居中标题、右上角日期、只有两三个字母的残行）不与正文比行首，
+   *    也不参与行首中位数；偏差过大说明根本不是正文版式，不写进文案。 */
+  function visualRows(lines, em) {
+    var counts = lines.map(function (ln) {
+      return ln.glyphs.filter(function (g) { return !g.punct; }).length;
+    });
+    var positive = counts.filter(function (n) { return n >= 2; });
+    var medCount = positive.length ? median(positive) : 0;
+    var minBody = Math.max(4, medCount * 0.55);
+    var bodyHeads = [];
+    lines.forEach(function (ln, i) {
+      if (counts[i] >= minBody) bodyHeads.push(ln.x0);
+    });
+    if (!bodyHeads.length) bodyHeads = lines.map(function (ln) { return ln.x0; });
+    var head0 = median(bodyHeads);
+    var groups = [], groupOf = [], i, prev;
+    for (i = 0; i < lines.length; i++) {
+      prev = groups[groups.length - 1];
+      if (prev && lines[i].cy - prev.cy < em * 1.15) {
+        prev.members.push(i);
+        prev.cy = median(prev.members.map(function (j) { return lines[j].cy; }));
+      } else {
+        groups.push({ cy: lines[i].cy, members: [i] });
+      }
+      groupOf[i] = groups.length - 1;
+    }
+    var centers = groups.map(function (g) { return g.cy; });
+    var gaps = [];
+    for (i = 1; i < centers.length; i++) gaps.push(centers[i] - centers[i - 1]);
+    var pitch0 = gaps.length ? median(gaps) : em * 1.6;
+    return {
+      counts: counts,
+      minBody: minBody,
+      head0: head0,
+      isBody: function (row) { return counts[row] >= minBody; },
+      pitchOf: function (row) {
+        var gi = groupOf[row];
+        return gi > 0 ? centers[gi] - centers[gi - 1] : pitch0;
+      }
+    };
+  }
+
   function evaluateZhCharacters(lines, W, H) {
     var notes = [];
     var characters = [];
@@ -1378,12 +1737,8 @@
     var lum0 = median(all.map(function (g) { return g.lum; }));
     var slantPool = all.map(function (g) { return g.slant; }).filter(function (s) { return s != null; });
     var slant0 = slantPool.length ? median(slantPool) : 0;
-    var heads = lines.map(function (ln) { return ln.x0; });
-    var head0 = heads.length ? median(heads) : 0;
-    var pitches = [];
-    var li;
-    for (li = 1; li < lines.length; li++) pitches.push(lines[li].cy - lines[li - 1].cy);
-    var pitch0 = pitches.length ? median(pitches) : em * 1.6;
+    var rowView = visualRows(lines, em);
+    var head0 = rowView.head0;
     var index = 0;
 
     lines.forEach(function (ln, row) {
@@ -1394,9 +1749,10 @@
       var gap0 = packed.gaps.length ? median(packed.gaps) : em * 0.5;
       pool.forEach(function (g) { g.gapToNext = null; });
       packed.pairs.forEach(function (pair, i) { pair[0].gapToNext = packed.gaps[i]; });
-      var pitch = row > 0 ? ln.cy - lines[row - 1].cy : pitch0;
+      var pitch = rowView.pitchOf(row);
       var bandH = Math.max(1, ln.h);
-      var headDev = Math.abs(ln.x0 - head0) / em;
+      var headDev = rowView.isBody(row) ? Math.abs(ln.x0 - head0) / em : 0;
+      var headIssue = rowView.isBody(row) && headDev > 0.6 && headDev <= 2.5;
       var pitchRatio = pitch / em;
 
       pool.forEach(function (g, col) {
@@ -1495,9 +1851,9 @@
         if (pitchRatio < 1.45) {
           hit('L2', 45, '本行行距只有 ' + pitchRatio.toFixed(2) + ' 倍字高，行与行太挤。', '', false);
         }
-        if (headDev > 0.6) {
+        if (headIssue) {
           hit('L3', deviationScore(headDev, 0.6, 90, 55),
-            '本行行首比全页错开 ' + Math.round(headDev * 100) + '% 字高，行款不齐。', '', false);
+            '本行行首比正文错开 ' + Math.round(headDev * 100) + '% 字高，行款不齐。', '', false);
         }
         var edgeTouch = g.x <= 1 || g.y <= 1 || g.x + g.w >= W - 1 || g.y + g.h >= H - 1;
         var overflow = row < lines.length - 1 && g.bottom > lines[row + 1].y0 + 2 && cyDelta > 0.55;
@@ -1590,8 +1946,283 @@
     return { notes: notes, characters: characters };
   }
 
-  function rubricSummary() {
-    return JSON.parse(JSON.stringify(RUBRIC));
+  /* 按衡水体量表逐字母评判。大小写／上伸字母按高度分组比较，避免把「大写比小写高」
+   * 误判成大小不匀；行款类条款按所在行评定，不生成逐字圈注。倾斜只判全篇一致性，
+   * 不量绝对角度（照片拍摄角度会带偏），5—10° 右倾的标准写在条款与进阶建议里。 */
+  function evaluateEnCharacters(lines, W, H) {
+    var notes = [];
+    var characters = [];
+    var all = [];
+    lines.forEach(function (ln) {
+      ln.glyphs.forEach(function (g) { if (!g.punct) all.push(g); });
+    });
+    if (!all.length) return { notes: notes, characters: characters };
+    var em = median(all.map(function (g) { return g.h; })) || 1;
+    var wm = median(all.map(function (g) { return g.w; })) || 1;
+    var lum0 = median(all.map(function (g) { return g.lum; }));
+    var slantPool = all.map(function (g) { return g.slant; }).filter(function (s) { return s != null; });
+    var slant0 = slantPool.length ? median(slantPool) : 0;
+    var rowView = visualRows(lines, em);
+    var head0 = rowView.head0;
+    var index = 0;
+
+    lines.forEach(function (ln, row) {
+      var pool = ln.glyphs.filter(function (g) { return !g.punct; });
+      if (!pool.length) return;
+      var gaps = gapsOf(ln.glyphs);
+      var split = splitGaps(gaps);
+      /* 字距、词距是整行属性：先在行级评定一次，再让本行每个字母都带上，
+       * 避免只挂在词尾那一个字母上、被平均值稀释。 */
+      var letterGaps = split.letter;
+      var wordGaps = split.word;
+      var letterIssue = null;
+      var wordIssue = null;
+      if (letterGaps.length >= 3) {
+        var l0 = median(letterGaps);
+        var maxLetterDev = 0;
+        letterGaps.forEach(function (g2) {
+          maxLetterDev = Math.max(maxLetterDev, Math.abs(g2 - l0) / Math.max(1, wm));
+        });
+        if (maxLetterDev > 0.55) {
+          letterIssue = {
+            score: deviationScore(maxLetterDev, 0.55, 90, 55),
+            detail: '本行词内空档相差 ' + Math.round(maxLetterDev * 100) + '% 字母宽，字距不匀。'
+          };
+        }
+      }
+      if (wordGaps.length >= 2) {
+        var w0 = median(wordGaps);
+        var maxWordDev = 0;
+        var minRatio = Infinity;
+        var maxRatio = 0;
+        wordGaps.forEach(function (g2) {
+          maxWordDev = Math.max(maxWordDev, Math.abs(g2 - w0) / Math.max(1, w0));
+          minRatio = Math.min(minRatio, g2 / Math.max(1, wm));
+          maxRatio = Math.max(maxRatio, g2 / Math.max(1, wm));
+        });
+        if (minRatio < 0.6) {
+          wordIssue = { score: 48, detail: '本行最小词距只有 ' + minRatio.toFixed(2) + ' 个字母宽，两个词快连成一团。' };
+        } else if (maxRatio > 4) {
+          wordIssue = {
+            score: deviationScore(maxRatio - 4, 0, 25, 55),
+            detail: '本行最大词距达 ' + maxRatio.toFixed(2) + ' 个字母宽，空档过大。'
+          };
+        } else if (maxWordDev > 0.45) {
+          wordIssue = {
+            score: deviationScore(maxWordDev, 0.45, 100, 58),
+            detail: '本行各词空档相差 ' + Math.round(maxWordDev * 100) + '%，词距不匀。'
+          };
+        }
+      }
+      var aspect0 = median(pool.map(function (g) { return g.w / Math.max(1, g.h); })) || 1;
+      var hs = pool.map(function (g) { return g.h; });
+      var rowEm = median(hs) || em;
+      var tallPool = hs.filter(function (h) { return h > rowEm * 1.32; });
+      var shortPool = hs.filter(function (h) { return h <= rowEm * 1.32; });
+      var grouped = tallPool.length >= 2 && tallPool.length < pool.length * 0.6;
+      var tallMed = grouped && tallPool.length ? median(tallPool) : null;
+      var shortMed = shortPool.length ? median(shortPool) : rowEm;
+      /* 基线只由不下伸的字母决定：g/j/p/q/y 的下伸是衡水体规则内写法，
+       * 用整行 bottom 中位数一刀切会把它们误判成「没贴线」。 */
+      var cyRow = median(pool.map(function (g) { return g.cy; }));
+      var isDescender = function (g) {
+        return g.h > shortMed * 1.2 && g.cy > cyRow + em * 0.12;
+      };
+      var flatBottoms = pool.filter(function (g) { return !isDescender(g); })
+        .map(function (g) { return g.bottom; });
+      var base0 = median(flatBottoms.length >= 3 ? flatBottoms
+        : pool.map(function (g) { return g.bottom; }));
+      var pitch = rowView.pitchOf(row);
+      var pitchRatio = pitch / rowEm;
+      var headDev = rowView.isBody(row) ? Math.abs(ln.x0 - head0) / em : 0;
+      var headIssue = rowView.isBody(row) && headDev > 0.6 && headDev <= 2.5;
+      var drift = 0;
+      if (pool.length >= 4) {
+        drift = (pool[pool.length - 1].bottom - pool[0].bottom) / em;
+      }
+      ln.glyphs.forEach(function (g, i) { g.gapToNext = i < gaps.length ? gaps[i] : null; });
+
+      pool.forEach(function (g, col) {
+        var findings = [];
+        function hit(code, score, detail, title, charLevel) {
+          var item = rubricItem(code, RUBRIC_EN);
+          if (!item) return;
+          findings.push({
+            code: code,
+            name: item.name,
+            dimension: item.dim,
+            weight: item.weight,
+            score: limit(score),
+            criterion: item.criterion,
+            detail: detail,
+            action: item.advice,
+            train: item.train || '',
+            advice: item.advice + (item.train ? '练法：' + item.train : ''),
+            title: title || '',
+            charLevel: !!charLevel
+          });
+        }
+
+        var aspect = g.w / Math.max(1, g.h);
+        var fill = g.area / Math.max(1, g.w * g.h);
+        var hGroup = g.h > rowEm * 1.32 && tallMed != null ? tallMed : shortMed;
+        var sizeDev = (g.h - hGroup) / Math.max(1, hGroup);
+        var descender = isDescender(g);
+        var adjBottom = descender ? g.bottom - Math.max(0, g.h - shortMed) : g.bottom;
+        var baseOff = Math.abs(adjBottom - base0) / em;
+        var lean = g.slant == null ? 0 : g.slant;
+        var slantDev = g.slant == null ? 0 : Math.abs(g.slant - slant0);
+        var lumDelta = g.lum - lum0;
+        var gap = g.gapToNext;
+
+        /* 笔画·线条 */
+        if (g.lum > 168 || (lum0 <= 150 && g.lum > lum0 + 36)) {
+          hit('E1', deviationScore(g.lum, 168, 1.6, 48),
+            '笔画灰度 ' + Math.round(g.lum) + '，比本页偏淡，线条不够清晰。', '用笔扎实', true);
+        }
+        if (Math.abs(lumDelta) > 30 && g.lum <= 168) {
+          hit('E2', deviationScore(Math.abs(lumDelta), 30, 1.6, 52),
+            '墨色与本页中位相差 ' + Math.round(Math.abs(lumDelta)) + ' 级，用力忽轻忽重。', '用力写匀', true);
+        }
+        if (fill > 0.72 && g.w >= 10 && g.h >= 10) {
+          hit('E3', 46, '局部填充率 ' + Math.round(fill * 100) + '%，笔画涂成了墨块。', '笔画干净', true);
+        }
+        /* 连写常把几个字母并成一个宽字形：用相对本页字母的宽高比判断，
+         * 不用绝对值（英文字母本来就是窄高的）。 */
+        if ((gap != null && gap <= 0) ||
+          (aspect > aspect0 * 1.5 && aspect - aspect0 > 0.2 && g.w > wm * 1.45)) {
+          hit('E4', 48, gap != null && gap <= 0
+            ? '与后一个字母粘在一起，有连笔或交叉。'
+            : '宽高比 ' + aspect.toFixed(2) + '、宽度约为同页字母的 ' +
+              (g.w / wm).toFixed(1) + ' 倍，疑似几个字母连写成一块。', '字母分开', true);
+        }
+
+        /* 字母·规格 */
+        if (sizeDev < -0.26) {
+          hit('E5', deviationScore(-sizeDev, 0.26, 75, 48),
+            '字母高度比同类小 ' + Math.round(-sizeDev * 100) + '%，大小不匀。', '字母同高', true);
+        } else if (sizeDev > 0.30) {
+          hit('E5', deviationScore(sizeDev, 0.30, 75, 48),
+            '字母高度比同类大 ' + Math.round(sizeDev * 100) + '%，大小不匀。', '字母同高', true);
+        }
+        if (baseOff > 0.22) {
+          hit('E6', deviationScore(baseOff, 0.22, 110, 40),
+            '底部比本行基线偏' + (adjBottom > base0 ? '下' : '上') + ' ' + Math.round(baseOff * 100) +
+            '% 字高，没有贴线。', '底部贴线', true);
+        }
+        if (Math.abs(lean) > 0.45) {
+          hit('E7', deviationScore(Math.abs(lean), 0.45, 150, 45),
+            '主轴偏斜约 ' + Math.round(Math.abs(lean) * 100) + '%，远超衡水体 5—10° 的右倾要求。', '斜度统一', true);
+        } else if (slantDev > 0.22) {
+          hit('E7', deviationScore(slantDev, 0.22, 140, 55),
+            '与整页倾斜角度相差 ' + Math.round(slantDev * 100) + '%，有的直有的斜。', '斜度统一', true);
+        }
+        if (Math.abs(aspect - aspect0) > 0.42 && (aspect > aspect0 * 1.6 || aspect < aspect0 * 0.6)) {
+          hit('E8', deviationScore(Math.abs(aspect - aspect0), 0.42, 130, 52),
+            '宽高比 ' + aspect.toFixed(2) + '，比同页字母明显偏' + (aspect > aspect0 ? '宽' : '窄') + '。', '宽窄匀称', true);
+        }
+
+        /* 间距·卷面（按行评定，不生成逐字圈注） */
+        if (letterIssue) hit('E9', letterIssue.score, letterIssue.detail, '', false);
+        if (wordIssue) hit('E10', wordIssue.score, wordIssue.detail, '', false);
+        if (pitchRatio < 1.45) {
+          hit('E11', 45, '本行行距只有 ' + pitchRatio.toFixed(2) + ' 倍字高，行与行太挤。', '', false);
+        } else if (Math.abs(drift) > 0.5) {
+          hit('E11', deviationScore(Math.abs(drift), 0.5, 90, 55),
+            '整行基线越写越' + (drift > 0 ? '往下' : '往上') + '，偏了 ' +
+            Math.round(Math.abs(drift) * 100) + '% 字高。', '', false);
+        }
+        var edgeTouch = g.x <= 1 || g.y <= 1 || g.x + g.w >= W - 1 || g.y + g.h >= H - 1;
+        var overflow = row < lines.length - 1 && g.bottom > lines[row + 1].y0 + 2;
+        if (edgeTouch || overflow || headIssue) {
+          hit('E12', 52, overflow ? '长笔压到下一行，字母没有收在本行内。'
+            : headIssue ? '本行行首比正文错开 ' + Math.round(headDev * 100) + '% 字高，行款不齐。'
+              : '笔画贴到纸边，四周没有留白。', '', false);
+        }
+
+        var dimScores = { stroke: 100, structure: 100, layout: 100 };
+        RUBRIC_EN.dimensions.forEach(function (dim) {
+          var wsum = 0, vsum = 0, worstItem = 100;
+          RUBRIC_EN.items.forEach(function (item) {
+            if (item.dim !== dim.key) return;
+            var f = null;
+            findings.forEach(function (candidate) { if (candidate.code === item.code) f = candidate; });
+            var s = f ? f.score : 100;
+            if (s < worstItem) worstItem = s;
+            wsum += item.weight;
+            vsum += item.weight * s;
+          });
+          dimScores[dim.key] = limit(Math.min(wsum ? vsum / wsum : 100, worstItem + 8));
+        });
+        /* 与中文同一口径：单字（字母）分只计笔画与字母规格，章法是整行属性。 */
+        var baseTotal = (dimScores.stroke * 30 + dimScores.structure * 40) / 70;
+        var charFindings = findings.filter(function (f) { return f.charLevel; });
+        var rowFindings = findings.filter(function (f) { return !f.charLevel; });
+        charFindings.sort(function (a, b) { return a.score - b.score; });
+        rowFindings.sort(function (a, b) { return a.score - b.score; });
+        findings.sort(function (a, b) { return a.score - b.score || (a.code > b.code ? 1 : -1); });
+        var worstChar = charFindings.length ? charFindings[0].score : 100;
+        var cap = !charFindings.length ? 100 : worstChar < 62 ? 64 : worstChar < 78 ? 79 : 89;
+        var total = limit(Math.min(baseTotal, cap));
+        var grade = gradeOf(total, RUBRIC_EN);
+        var level = charFindings.length ? (charFindings[0].score < 62 ? 'bad' : 'warn') : 'good';
+        var title = charFindings.length ? charFindings[0].title : '写得规范';
+        var place = '第' + (row + 1) + '行第' + (col + 1) + '个字母';
+        var verdict = place + ' · ' + grade.label + '（' + total + ' 分，单字）｜笔画 ' + dimScores.stroke +
+          '、字母 ' + dimScores.structure + '；章法 ' + dimScores.layout + '（按本行评定）。';
+        if (findings.length) {
+          var main = charFindings.slice(0, 2).concat(rowFindings.slice(0, 1)).slice(0, 2);
+          verdict += (charFindings.length ? '主要问题：' : '本行章法：') + main.map(function (f) {
+            return f.name + '（' + f.detail.replace(/。$/, '') + '）';
+          }).join('；') + '。';
+        } else {
+          verdict += RUBRIC_EN.items.length + ' 项可测量条款全部达标：大小同高、底部贴线、斜度统一、字距词距匀称。';
+        }
+        var advice;
+        if (findings.length) {
+          var parts = charFindings.slice(0, 2).map(function (f) { return f.advice; });
+          if (!parts.length) {
+            parts.push('字母本身可以保持；本行' + rowFindings[0].name + '需整体调整：' + rowFindings[0].advice);
+          } else if (rowFindings.length) {
+            parts.push('另：本行' + rowFindings[0].name + '见行标注，' + rowFindings[0].action);
+          }
+          advice = '优先改：' + parts.join(' ') + ' 其余条款保持现状。';
+        } else {
+          advice = '此字母已合衡水体「规范、清晰、匀称」，可作本行范字。进阶：' + RUBRIC_EN.advanced;
+        }
+        var box = boxOf(g, 1, W, H);
+        var charIndex = index++;
+        characters.push({
+          index: charIndex,
+          line: row + 1,
+          column: col + 1,
+          box: { x: box.x, y: box.y, w: box.w, h: box.h },
+          score: total,
+          grade: grade.label,
+          gradeNote: grade.note,
+          level: level,
+          title: title,
+          verdict: verdict,
+          advice: advice,
+          scores: dimScores,
+          findings: findings,
+          passedCount: RUBRIC_EN.items.length - findings.length,
+          itemCount: RUBRIC_EN.items.length
+        });
+        notes.push({
+          glyph: g,
+          level: level,
+          text: title,
+          detail: advice,
+          charIndex: charIndex
+        });
+      });
+    });
+    return { notes: notes, characters: characters };
+  }
+
+  function rubricSummary(script) {
+    return JSON.parse(JSON.stringify(script === 'en' ? RUBRIC_EN : RUBRIC));
   }
 
   function reviewCharacters(lines) {
@@ -1672,6 +2303,38 @@
     return notes;
   }
 
+  /* 行级章法问题按条款单独汇总：它们属于「这一行怎么排」，不是「某个字要改」。
+   * 与逐字建议分栏后，才不会把「写得规范（有 55 处）」列进改进建议里。 */
+  function rowAdviceOf(characters) {
+    var map = {}, order = [];
+    (characters || []).forEach(function (c) {
+      (c.findings || []).forEach(function (f) {
+        if (f.charLevel) return;
+        if (!map[f.code]) {
+          map[f.code] = {
+            code: f.code, title: f.name, criterion: f.criterion,
+            advice: f.action, train: f.train || '', lines: {}
+          };
+          order.push(map[f.code]);
+        }
+        map[f.code].lines[c.line] = 1;
+      });
+    });
+    return order.map(function (x) {
+      var lines = Object.keys(x.lines).map(Number).sort(function (a, b) { return a - b; });
+      var shown = lines.slice(0, 6).join('、') + (lines.length > 6 ? ' 等' : '');
+      return {
+        code: x.code,
+        title: x.title,
+        lines: lines,
+        lineCount: lines.length,
+        criterion: x.criterion,
+        detail: '第 ' + shown + ' 行（共 ' + lines.length + ' 行）。' + x.advice +
+          (x.train ? '练法：' + x.train : '')
+      };
+    }).sort(function (a, b) { return b.lineCount - a.lineCount; });
+  }
+
   function groupNotes(notes) {
     var map = {};
     var order = [];
@@ -1704,9 +2367,13 @@
     if (built.ink < W * H * 0.004) {
       return emptyReport('没有看出成行的手写字。请换一张白纸、深色笔的照片，字写清楚，尽量放平。');
     }
-    var parts = keepGlyphs(fitted, built.mask, components(fitted, built.mask));
+    var ruling = removeRulingLines(built.mask, W, H);
+    var parts = keepGlyphs(fitted, built.mask, mergeCutGlyphs(components(fitted, built.mask)));
     var cells = keepGlyphs(fitted, built.mask, charactersFromMask(fitted, built.mask));
-    var glyphs = cells.length >= 6 && parts.length > cells.length * 1.45 ? cells : parts;
+    /* 连通块比按行切出的字多得多，说明一个字被拆散；少得多，说明几个字粘连或被
+     * 格线吃掉。两种极端都改用按行带 + 列投影切出的字。 */
+    var glyphs = cells.length >= 6 &&
+      (parts.length > cells.length * 1.45 || parts.length < cells.length * 0.6) ? cells : parts;
     if (glyphs.length < 6) {
       return emptyReport('没有看出成行的手写字。请换一张白纸、深色笔的照片，字写清楚，尽量放平。');
     }
@@ -1714,7 +2381,7 @@
     var lineHeights = lines.filter(function (ln) { return ln.glyphs.length >= 3; }).map(function (ln) { return ln.h; });
     var medLineH = median(lineHeights) || 1;
     lines = lines.filter(function (ln) {
-      return ln.h >= medLineH * 0.55 && ln.h <= medLineH * 2.2 && ln.glyphs.length >= 2;
+      return ln.h >= medLineH * 0.45 && ln.h <= medLineH * 2.2 && ln.glyphs.length >= 2;
     });
     var usable = 0;
     lines.forEach(function (ln) { usable += ln.glyphs.length; });
@@ -1722,7 +2389,9 @@
       return emptyReport('没有看出成行的手写字。请换一张白纸、深色笔的照片，字写清楚，尽量放平。');
     }
     markPunctuation(lines);
-    var detected = detectScript(lines);
+    var skippedPrinted = skipPrintedHeaders(lines, H);
+    var detectedInfo = detectScript(lines, ruling);
+    var detected = detectedInfo.script;
     var script = options.script === 'zh' || options.script === 'en' ? options.script : detected;
     if (script !== 'mixed') lines.forEach(function (ln) { ln.kind = script; });
     else lines.forEach(function (ln) { if (ln.kind === 'unknown') ln.kind = 'zh'; });
@@ -1739,29 +2408,30 @@
       }
       return raw;
     }
-    var reviewed = script === 'zh'
-      ? evaluateZhCharacters(lines, W, H)
-      : { notes: reviewCharacters(lines), characters: [] };
+    var rubric = script === 'zh' ? RUBRIC : script === 'en' ? RUBRIC_EN : null;
+    var reviewed = script === 'zh' ? evaluateZhCharacters(lines, W, H)
+      : script === 'en' ? evaluateEnCharacters(lines, W, H)
+        : { notes: reviewCharacters(lines), characters: [] };
     var notes = reviewed.notes;
     var characters = reviewed.characters;
     var dims;
-    if (script === 'zh') {
-      /* 全页三维度完全由逐字量表汇总，与逐字评判一个口径。行距、行首、越行等
-       * 行级问题已写进 L1—L4 条款，按所在行计入每个字的章法分。 */
+    var weights = {};
+    if (rubric) {
+      /* 中英文都用各自量表：全页维度完全由逐字评判汇总，与逐字评判一个口径。
+       * 行距、行首、越行等行级问题已写进章法条款，按所在行计入每个字（字母）。 */
       var charDim = { stroke: [], structure: [], layout: [] };
       characters.forEach(function (c) {
         charDim.stroke.push(c.scores.stroke);
         charDim.structure.push(c.scores.structure);
         charDim.layout.push(c.scores.layout);
       });
-      function zhDimScore(key) {
-        return charDim[key].length ? limit(mean(charDim[key])) : 100;
-      }
-      dims = [
-        { key: 'stroke', label: '笔画', weight: 30, score: zhDimScore('stroke') },
-        { key: 'structure', label: '结构', weight: 50, score: zhDimScore('structure') },
-        { key: 'layout', label: '章法', weight: 20, score: zhDimScore('layout') }
-      ];
+      dims = rubric.dimensions.map(function (d) {
+        weights[d.key] = d.weight;
+        return {
+          key: d.key, label: d.label, weight: d.weight,
+          score: charDim[d.key].length ? limit(mean(charDim[d.key])) : 100
+        };
+      });
     } else {
       dims = [
         dimension('baseline', baselineRaw, W, H),
@@ -1771,11 +2441,8 @@
         dimension('ink', inkRaw, W, H),
         dimension('neat', neatRaw, W, H)
       ];
+      weights = { baseline: 1.25, size: 1.1, spacing: 1.2, slant: 1, ink: 0.8, neat: 1 };
     }
-    /* 中文按 CCPT 初级书写卷的 30 / 50 / 20 权重，英文仍用原来的六维权重。 */
-    var weights = script === 'zh'
-      ? { stroke: 30, structure: 50, layout: 20 }
-      : { baseline: 1.25, size: 1.1, spacing: 1.2, slant: 1, ink: 0.8, neat: 1 };
     var wsum = 0, vsum = 0, worst = 100, i;
     for (i = 0; i < dims.length; i++) {
       wsum += weights[dims[i].key];
@@ -1831,7 +2498,10 @@
       c.box = { x: marks[i].x, y: marks[i].y, w: marks[i].w, h: marks[i].h };
     });
     marks.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
-    var suggestions = groupNotes(notes);
+    var goodTitles = { '写得工整': 1, '写得整齐': 1, '写得规范': 1 };
+    var suggestions = groupNotes(notes).map(function (s) {
+      return { title: s.title, detail: s.detail, scope: goodTitles[s.title] ? 'good' : 'char' };
+    });
     var goodN = 0;
     var fixN = 0;
     notes.forEach(function (n) {
@@ -1839,16 +2509,24 @@
       if (n.level === 'good') goodN++;
       else fixN++;
     });
-    var fixes = suggestions.filter(function (s) { return s.title !== '写得工整' && s.title !== '写得整齐'; });
+    var fixes = suggestions.filter(function (s) {
+      return s.title !== '写得工整' && s.title !== '写得整齐' && s.title !== '写得规范';
+    });
     var charAverage = characters.length ? limit(mean(characters.map(function (c) { return c.score; }))) : null;
     var summary = scriptLabel + '手写，' + verdict + '。逐字看过 ' + (goodN + fixN) + ' 个，' + goodN + ' 个写得稳，' + fixN + ' 个要改。';
     if (fixes.length) summary += '先改：' + fixes.slice(0, 4).map(function (s) { return s.title; }).join('、') + '。';
     else summary += script === 'zh' ? '可以照着再抄一行。' : '可以照着再写一行。';
     if (script === 'zh') summary += '中文按硬笔楷书量表（笔法 30 / 结体 50 / 章法 20）逐字评判。';
+    else if (script === 'en') summary += '英文按衡水体量表（笔画 30 / 字母 40 / 章法 30）逐字母评判。';
+    if (skippedPrinted) summary += '已跳过 ' + skippedPrinted + ' 个印刷字，只评判手写笔迹。';
     return {
       ok: true,
       script: script,
       scriptLabel: scriptLabel,
+      detectedScript: detected,
+      scriptEvidence: detectedInfo.evidence,
+      skippedPrinted: skippedPrinted,
+      ruling: { hLines: ruling.hLines, vLines: ruling.vLines, removed: ruling.removed },
       score: score,
       verdict: verdict,
       summary: summary,
@@ -1859,11 +2537,12 @@
       dimensions: dims.map(function (d) {
         return { key: d.key, label: d.label, score: d.score, weight: d.weight || null };
       }),
-      rubric: script === 'zh' ? rubricSummary() : null,
+      rubric: rubric ? rubricSummary(script) : null,
       characters: characters,
       charAverage: charAverage,
-      standardNote: script === 'zh' ? RUBRIC.note : '',
+      standardNote: rubric ? rubric.note : '',
       suggestions: suggestions,
+      rowAdvice: rubric ? rowAdviceOf(characters) : [],
       marks: marks
     };
   }

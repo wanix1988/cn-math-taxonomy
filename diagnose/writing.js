@@ -162,7 +162,8 @@
   function render() {
     var html = '<section class="card" id="hw-drop">';
     html += '<h1>书写质量</h1>';
-    html += '<p class="muted">上传中文或英文手写照片。中文按硬笔楷书量表（笔法 30 / 结体 50 / 章法 20）逐字给分、评级和改法，写得好的用绿圈表扬，要改的用红圈写明改法；英文仍按字母书写看。圈和字都避开原来的笔迹。不判断字写得对不对，笔顺、起收笔、部件比例等需人工复核。已批改的卷子仍用 <a href="papers.html">试卷质量分析</a>。</p>';
+    html += '<p class="muted">上传中文或英文手写照片。中文按硬笔楷书量表（笔法 30 / 结体 50 / 章法 20）逐字评判，英文按衡水体量表（笔画 30 / 字母 40 / 章法 30）逐字母评判；每个字／字母都给分、评级、评判和优化建议，写得好的用绿圈表扬，要改的用红圈写明改法。圈和字都避开原来的笔迹。不判断字写得对不对，笔顺、起收笔、具体占格等需人工复核。已批改的卷子仍用 <a href="papers.html">试卷质量分析</a>。</p>';
+    html += '<p class="small muted">四线格 / 横线纸的格线会自动剔除，彩色印刷标题不参与评判；语种按字形、词距和格线版式自动识别，判错时可在上面手动切换。若某行正好被格线遮住而漏评，把那几行裁出来单独上传。「优先改」只列单字／字母本身的问题，整行的间距与行首问题单列在「整行章法提醒」，格线纸上的行距、行首判据请对照原图人工复核。</p>';
     html += '<div class="row" role="radiogroup" aria-label="按哪种文字来看">';
     html += scriptChoice('auto', '自动');
     html += scriptChoice('zh', '中文');
@@ -180,7 +181,8 @@
       html += '<h2>标注</h2>';
       if (report && report.ok) {
         html += '<p>' + esc(report.summary) + '</p>';
-        html += '<p class="small muted">看出 ' + report.lineCount + ' 行、' + (report.goodCount + report.fixCount) + ' 个字。绿圈是表扬，红圈是改法，都避开原来的笔迹。</p>';
+        html += '<p class="small muted">看出 ' + report.lineCount + ' 行、' + (report.goodCount + report.fixCount) +
+          ' 个' + (report.script === 'en' ? '字母' : '字') + '。绿圈是表扬，红圈是改法，都避开原来的笔迹。</p>';
       } else if (report) {
         html += '<p class="err">' + esc(report.message) + '</p>';
       }
@@ -196,23 +198,45 @@
       html += '<div class="stat ' + (report.fixCount ? 'bad' : 'ok') + '"><b>' + report.fixCount + '</b>要改</div>';
       html += '<div class="stat"><b>' + esc(report.scriptLabel) + '</b>文字</div>';
       html += '</div>';
+      if (report.scriptEvidence) {
+        var detectedName = report.detectedScript === 'en' ? '英文' : report.detectedScript === 'mixed' ? '中英' : '中文';
+        html += '<p class="small muted">自动识别：' + esc(detectedName) + '（' + esc(report.scriptEvidence.reason) + '）';
+        if (script !== 'auto') html += '，已手动改为' + esc(report.scriptLabel);
+        html += '。';
+        if (report.skippedPrinted) html += '已跳过 ' + report.skippedPrinted + ' 个印刷标题字，只评判手写笔迹。';
+        html += '</p>';
+      }
       report.dimensions.forEach(function (dim) {
         html += '<div class="hw-dim"><span class="name">' + esc(dim.label) + '</span>';
         html += '<div class="progress"><i style="width:' + dim.score + '%"></i></div>';
         html += '<b>' + dim.score + '</b>' + (dim.weight ? '<span class="small muted"> ' + dim.weight + '%</span>' : '') + '</div>';
       });
       if (report.charAverage != null) {
-        html += '<p class="small muted">总分按量表三维度加权（章法按行评定）；逐字平均 ' +
-          report.charAverage + ' 分只计笔法与结体，不含章法。</p>';
+        var enSummary = report.script === 'en';
+        html += '<p class="small muted">总分按量表三维度加权（章法按行评定）；逐' +
+          (enSummary ? '字母' : '字') + '平均 ' + report.charAverage + ' 分只计' +
+          (enSummary ? '笔画与字母规格' : '笔法与结体') + '，不含章法。</p>';
       }
       html += '</section>';
       html += rubricCard(report);
       html += charactersCard(report);
-      html += '<section class="card"><h2>共性问题</h2>';
-      report.suggestions.forEach(function (item) {
+      var plans = (report.suggestions || []).filter(function (s) { return s.scope !== 'good'; });
+      html += '<section class="card"><h2>优先改</h2>';
+      if (!plans.length) html += '<p class="small muted">单字／字母本身没有发现明显失度，重点看下面的整行章法提醒。</p>';
+      plans.forEach(function (item) {
         html += '<article class="pq-plan"><h3>' + esc(item.title) + '</h3><p>' + esc(item.detail) + '</p></article>';
       });
       html += '</section>';
+      if (report.rowAdvice && report.rowAdvice.length) {
+        html += '<section class="card"><h2>整行章法提醒</h2>';
+        html += '<p class="small muted">按行评定的共性问题，不针对某一个字／字母。四线格、田字格上的行距与行首判据只作参考，请对照原图人工复核。</p>';
+        report.rowAdvice.forEach(function (item) {
+          html += '<article class="pq-plan"><h3>' + esc(item.title) + ' · ' + item.lineCount + ' 行</h3>';
+          html += '<p class="small muted">' + esc(item.criterion) + '</p>';
+          html += '<p>' + esc(item.detail) + '</p></article>';
+        });
+        html += '</section>';
+      }
     }
 
     root.innerHTML = html;
@@ -265,7 +289,7 @@
     html += '<h3>依据</h3><ul class="hw-list">';
     rub.sources.forEach(function (s) {
       html += '<li><b>' + esc(s.title) + '</b>：' + esc(s.point);
-      if (s.url) html += ' <a href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">查看大纲</a>';
+      if (s.url) html += ' <a href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">查看依据</a>';
       html += '</li>';
     });
     html += '</ul><h3>维度与权重</h3>';
@@ -291,9 +315,16 @@
 
   function charactersCard(r) {
     if (!r.characters || !r.characters.length) return '';
-    var html = '<section class="card" id="hw-chars"><h2>逐字评判</h2>';
-    html += '<p class="small muted">共 ' + r.characters.length + ' 字，逐字平均 ' + r.charAverage + ' 分。' +
-      '每字按笔法与结体定级，章法按所在行另评并写进该字评判；单条明显失度会压低等级；点「在图上定位」对照圈注。</p>';
+    var en = r.script === 'en';
+    var unit = en ? '字母' : '字';
+    var dimNames = {};
+    ((r.rubric && r.rubric.dimensions) || []).forEach(function (d) { dimNames[d.key] = d.label; });
+    var html = '<section class="card" id="hw-chars"><h2>逐' + unit + '评判' +
+      (en ? '（衡水体）' : '') + '</h2>';
+    html += '<p class="small muted">共 ' + r.characters.length + ' ' + unit + '，逐' + unit +
+      '平均 ' + r.charAverage + ' 分。每' + unit + '按' +
+      (en ? '笔画与字母规格' : '笔法与结体') + '定级，章法按所在行另评并写进该' + unit +
+      '评判；单条明显失度会压低等级；点「在图上定位」对照圈注。</p>';
     var opts = [['all', '全部'], ['bad', '待改进'], ['warn', '需打磨'], ['good', '写得稳']];
     html += '<div class="row hw-filter" role="group" aria-label="按等级筛选">';
     opts.forEach(function (o) {
@@ -305,11 +336,12 @@
     if (!list.length) html += '<p class="muted">这一档没有字。</p>';
     list.forEach(function (c) {
       html += '<article class="hw-char' + (focusIndex === c.index ? ' focus' : '') + '" data-index="' + c.index + '">';
-      html += '<div class="hw-char-head"><h3>第 ' + c.line + ' 行 · 第 ' + c.column + ' 字</h3>';
+      html += '<div class="hw-char-head"><h3>第 ' + c.line + ' 行 · 第 ' + c.column + ' ' + unit + '</h3>';
       html += '<span class="hw-badge ' + c.level + '">' + esc(c.grade) + ' ' + c.score + '</span>';
       html += '<button type="button" class="hw-locate" data-locate="' + c.index + '">在图上定位</button></div>';
       html += '<div class="hw-scores">';
-      [['stroke', '笔法'], ['structure', '结体'], ['layout', '章法']].forEach(function (p) {
+      [['stroke', dimNames.stroke || '笔法'], ['structure', dimNames.structure || '结体'],
+        ['layout', dimNames.layout || '章法']].forEach(function (p) {
         html += '<div class="hw-dim"><span class="name">' + p[1] + '</span>';
         html += '<div class="progress"><i style="width:' + c.scores[p[0]] + '%"></i></div>';
         html += '<b>' + c.scores[p[0]] + '</b></div>';
