@@ -11,3 +11,6 @@ __pycache__/
 PROMPT*.md
 chain.sh
 .cf-token-workers
+
+# 个人试卷照片与错题导出不进本仓库，以后单独存放
+diagnose/_preview/
