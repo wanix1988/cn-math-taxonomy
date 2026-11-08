@@ -358,3 +358,80 @@ button.pq-mark.on { background: rgba(185, 28, 28, 0.42); box-shadow: 0 0 0 2px v
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* 硬笔楷书量表与逐字评判 */
+.hw-list { margin: 8px 0; padding-left: 1.35em; }
+.hw-list li { margin: 6px 0; line-height: 1.65; }
+.hw-list code {
+  font-family: ui-monospace, monospace;
+  font-weight: 800;
+  color: var(--brand);
+}
+.hw-rule {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--brand);
+  border-radius: 6px;
+  background: var(--bg-muted);
+}
+.hw-rule p { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+.hw-details {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-elev);
+}
+.hw-details > summary { cursor: pointer; font-weight: 800; }
+.hw-filter { flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.hw-chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  font-weight: 700;
+  cursor: pointer;
+}
+.hw-chip.on { background: var(--brand); color: var(--on-brand); border-color: transparent; }
+.hw-char {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-elev);
+}
+.hw-char.focus { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.hw-char-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hw-char-head h3 { margin: 0; flex: 1; font-size: 15px; }
+.hw-badge {
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.hw-badge.good { color: #1d6b45; background: rgba(29, 107, 69, .12); border-color: rgba(29, 107, 69, .35); }
+.hw-badge.warn { color: #c2410c; background: rgba(194, 65, 12, .12); border-color: rgba(194, 65, 12, .35); }
+.hw-badge.bad { color: #b42318; background: rgba(180, 35, 24, .12); border-color: rgba(180, 35, 24, .35); }
+.hw-locate {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--brand);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.hw-scores { margin-top: 8px; }
+.hw-verdict, .hw-advice { margin: 8px 0; font-size: 14px; line-height: 1.7; }
+.hw-advice { padding: 8px 10px; border-radius: 8px; background: var(--brand-soft); }
+.hw-action { color: var(--muted); font-size: 13px; }
+@media (prefers-color-scheme: dark) {
+  .hw-badge.good { color: #7ee2b0; }
+  .hw-badge.warn { color: #fdba74; }
+  .hw-badge.bad { color: #fca5a5; }
+}

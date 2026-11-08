@@ -10,6 +10,8 @@
   var report = null;
   var busy = false;
   var status = '';
+  var focusIndex = null;
+  var charFilter = 'all';
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -68,6 +70,8 @@
     busy = true;
     status = '正在看笔迹……';
     report = null;
+    focusIndex = null;
+    charFilter = 'all';
     render();
     var url = URL.createObjectURL(file);
     var img = new Image();
@@ -94,7 +98,7 @@
     img.src = url;
   }
 
-  function paintBoard(canvas, pixelW, pixelH, scale) {
+  function paintBoard(canvas, pixelW, pixelH, scale, withFocus) {
     var ctx = canvas.getContext('2d');
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -104,6 +108,18 @@
     ctx.drawImage(view, 0, 0, pixelW, pixelH);
     if (report && report.ok && report.marks && report.marks.length) {
       HW.drawAnnotations(ctx, HW.layoutMarks(report.marks, pixelW, pixelH, scale));
+    }
+    if (withFocus && report && report.ok && focusIndex != null &&
+      report.characters && report.characters[focusIndex]) {
+      var b = report.characters[focusIndex].box;
+      var pad = Math.max(2, 3 * scale);
+      ctx.save();
+      ctx.setLineDash([6 * scale, 4 * scale]);
+      ctx.strokeStyle = '#0f6e62';
+      ctx.lineWidth = Math.max(1.6, 2 * scale);
+      ctx.strokeRect(b.x * pixelW - pad, b.y * pixelH - pad,
+        b.w * pixelW + pad * 2, b.h * pixelH + pad * 2);
+      ctx.restore();
     }
   }
 
@@ -118,7 +134,7 @@
     canvas.height = Math.max(1, Math.round(cssH * dpr));
     canvas.style.width = '100%';
     canvas.style.height = 'auto';
-    paintBoard(canvas, cssW, cssH, 1);
+    paintBoard(canvas, cssW, cssH, 1, true);
     if (report && report.summary) canvas.setAttribute('aria-label', report.summary);
   }
 
@@ -129,7 +145,7 @@
     var out = document.createElement('canvas');
     out.width = view.width;
     out.height = view.height;
-    paintBoard(out, view.width, view.height, view.width / cssW);
+    paintBoard(out, view.width, view.height, view.width / cssW, false);
     out.toBlob(function (blob) {
       if (!blob) return;
       var a = document.createElement('a');
@@ -146,7 +162,7 @@
   function render() {
     var html = '<section class="card" id="hw-drop">';
     html += '<h1>书写质量</h1>';
-    html += '<p class="muted">上传中文或英文手写照片。每个字都会看：写得好的用绿圈表扬，要改的用红圈写明改法。圈和字都避开原来的笔迹。不判断字写得对不对。已批改的卷子仍用 <a href="papers.html">试卷质量分析</a>。</p>';
+    html += '<p class="muted">上传中文或英文手写照片。中文按硬笔楷书量表（笔法 30 / 结体 50 / 章法 20）逐字给分、评级和改法，写得好的用绿圈表扬，要改的用红圈写明改法；英文仍按字母书写看。圈和字都避开原来的笔迹。不判断字写得对不对，笔顺、起收笔、部件比例等需人工复核。已批改的卷子仍用 <a href="papers.html">试卷质量分析</a>。</p>';
     html += '<div class="row" role="radiogroup" aria-label="按哪种文字来看">';
     html += scriptChoice('auto', '自动');
     html += scriptChoice('zh', '中文');
@@ -183,10 +199,16 @@
       report.dimensions.forEach(function (dim) {
         html += '<div class="hw-dim"><span class="name">' + esc(dim.label) + '</span>';
         html += '<div class="progress"><i style="width:' + dim.score + '%"></i></div>';
-        html += '<b>' + dim.score + '</b></div>';
+        html += '<b>' + dim.score + '</b>' + (dim.weight ? '<span class="small muted"> ' + dim.weight + '%</span>' : '') + '</div>';
       });
+      if (report.charAverage != null) {
+        html += '<p class="small muted">总分按量表三维度加权（章法按行评定）；逐字平均 ' +
+          report.charAverage + ' 分只计笔法与结体，不含章法。</p>';
+      }
       html += '</section>';
-      html += '<section class="card"><h2>逐字批注</h2>';
+      html += rubricCard(report);
+      html += charactersCard(report);
+      html += '<section class="card"><h2>共性问题</h2>';
       report.suggestions.forEach(function (item) {
         html += '<article class="pq-plan"><h3>' + esc(item.title) + '</h3><p>' + esc(item.detail) + '</p></article>';
       });
@@ -215,6 +237,102 @@
     }
     var save = document.getElementById('hw-save');
     if (save) save.addEventListener('click', download);
+    var locs = root.querySelectorAll('[data-locate]');
+    Array.prototype.forEach.call(locs, function (btn) {
+      btn.addEventListener('click', function () {
+        focusIndex = Number(btn.getAttribute('data-locate'));
+        drawVisible();
+        var board = document.getElementById('hw-board');
+        if (board && board.scrollIntoView) board.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        Array.prototype.forEach.call(root.querySelectorAll('.hw-char'), function (el) {
+          if (el.classList.toggle) el.classList.toggle('focus', Number(el.getAttribute('data-index')) === focusIndex);
+        });
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-filter]'), function (btn) {
+      btn.addEventListener('click', function () {
+        charFilter = btn.getAttribute('data-filter');
+        render();
+      });
+    });
+  }
+
+  function rubricCard(r) {
+    var rub = r.rubric;
+    if (!rub) return '';
+    var html = '<section class="card"><h2>评价标准</h2>';
+    html += '<p class="small muted">' + esc(rub.name) + ' · ' + esc(rub.stage) + ' · 版本 ' + esc(rub.version) + '</p>';
+    html += '<h3>依据</h3><ul class="hw-list">';
+    rub.sources.forEach(function (s) {
+      html += '<li><b>' + esc(s.title) + '</b>：' + esc(s.point);
+      if (s.url) html += ' <a href="' + esc(s.url) + '" target="_blank" rel="noopener noreferrer">查看大纲</a>';
+      html += '</li>';
+    });
+    html += '</ul><h3>维度与权重</h3>';
+    rub.dimensions.forEach(function (d) {
+      html += '<div class="hw-rule"><b>' + esc(d.full) + '　' + d.weight + '%</b><p>' + esc(d.criterion) + '</p></div>';
+    });
+    html += '<details class="hw-details"><summary>' + rub.items.length + ' 项可测量条款与判据</summary><ul class="hw-list">';
+    rub.items.forEach(function (it) {
+      html += '<li><code>' + esc(it.code) + '</code> ' + esc(it.name) + '（' + it.weight + ' 分）：' + esc(it.criterion) + '</li>';
+    });
+    html += '</ul></details>';
+    html += '<h3>等级</h3><p class="small">' + rub.grades.map(function (g) {
+      return esc(g.label) + ' ≥ ' + g.min + ' 分（' + esc(g.note) + '）';
+    }).join('；') + '。</p>';
+    html += '<details class="hw-details"><summary>本工具不评判的项目（' + rub.unmeasurable.length + ' 项）</summary><ul class="hw-list">';
+    rub.unmeasurable.forEach(function (u) {
+      html += '<li><b>' + esc(u.name) + '</b>：' + esc(u.reason) + '</li>';
+    });
+    html += '</ul></details>';
+    html += '<p class="small muted">' + esc(rub.note) + '</p></section>';
+    return html;
+  }
+
+  function charactersCard(r) {
+    if (!r.characters || !r.characters.length) return '';
+    var html = '<section class="card" id="hw-chars"><h2>逐字评判</h2>';
+    html += '<p class="small muted">共 ' + r.characters.length + ' 字，逐字平均 ' + r.charAverage + ' 分。' +
+      '每字按笔法与结体定级，章法按所在行另评并写进该字评判；单条明显失度会压低等级；点「在图上定位」对照圈注。</p>';
+    var opts = [['all', '全部'], ['bad', '待改进'], ['warn', '需打磨'], ['good', '写得稳']];
+    html += '<div class="row hw-filter" role="group" aria-label="按等级筛选">';
+    opts.forEach(function (o) {
+      html += '<button type="button" class="hw-chip' + (charFilter === o[0] ? ' on' : '') +
+        '" data-filter="' + o[0] + '" aria-pressed="' + (charFilter === o[0]) + '">' + o[1] + '</button>';
+    });
+    html += '</div>';
+    var list = r.characters.filter(function (c) { return charFilter === 'all' || c.level === charFilter; });
+    if (!list.length) html += '<p class="muted">这一档没有字。</p>';
+    list.forEach(function (c) {
+      html += '<article class="hw-char' + (focusIndex === c.index ? ' focus' : '') + '" data-index="' + c.index + '">';
+      html += '<div class="hw-char-head"><h3>第 ' + c.line + ' 行 · 第 ' + c.column + ' 字</h3>';
+      html += '<span class="hw-badge ' + c.level + '">' + esc(c.grade) + ' ' + c.score + '</span>';
+      html += '<button type="button" class="hw-locate" data-locate="' + c.index + '">在图上定位</button></div>';
+      html += '<div class="hw-scores">';
+      [['stroke', '笔法'], ['structure', '结体'], ['layout', '章法']].forEach(function (p) {
+        html += '<div class="hw-dim"><span class="name">' + p[1] + '</span>';
+        html += '<div class="progress"><i style="width:' + c.scores[p[0]] + '%"></i></div>';
+        html += '<b>' + c.scores[p[0]] + '</b></div>';
+      });
+      html += '</div>';
+      html += '<p class="hw-verdict">' + esc(c.verdict) + '</p>';
+      html += '<p class="hw-advice"><b>优化建议</b>　' + esc(c.advice) + '</p>';
+      if (c.findings.length) {
+        html += '<details class="hw-details"><summary>命中 ' + c.findings.length + ' 项（达标 ' +
+          c.passedCount + '/' + c.itemCount + '）</summary><ul class="hw-list">';
+        c.findings.forEach(function (f) {
+          html += '<li><code>' + esc(f.code) + '</code> ' + esc(f.name) + ' <b>' + f.score + ' 分</b>：' + esc(f.detail) +
+            '<br><span class="hw-action">改法：' + esc(f.action) +
+            (f.train ? '　练法：' + esc(f.train) : '') + '</span></li>';
+        });
+        html += '</ul></details>';
+      } else {
+        html += '<p class="small muted">' + c.itemCount + ' 项条款全部达标。</p>';
+      }
+      html += '</article>';
+    });
+    html += '</section>';
+    return html;
   }
 
   function scriptChoice(mode, label) {

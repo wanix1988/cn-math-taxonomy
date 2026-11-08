@@ -419,3 +419,189 @@ check('画标注时不报错', function () {
   hw.drawAnnotations(ctx, placed);
   assert.deepStrictEqual(ctx.texts, ['用笔扎实']);
 });
+
+/* ---- 硬笔楷书量表与逐字评判 ---- */
+
+function unevenChinese() {
+  var img = blank(460, 220);
+  var heights = [10, 22, 11, 24, 12, 23, 10, 22];
+  var bottom = 70;
+  heights.forEach(function (h, i) {
+    hanziBox(img, 24 + i * 32, bottom - h, 16, h);
+  });
+  return img;
+}
+
+function englishPage() {
+  var img = blank(560, 280);
+  var row, word, letterIndex, x, y;
+  for (row = 0; row < 3; row++) {
+    x = 24;
+    y = 30 + row * 80;
+    for (word = 0; word < 4; word++) {
+      if (word) x += 16;
+      for (letterIndex = 0; letterIndex < 4; letterIndex++) {
+        letter(img, x, y, 5, 16);
+        x += 8;
+      }
+    }
+  }
+  return img;
+}
+
+check('量表导出 CCPT 的 30/50/20 权重且外部改不动', function () {
+  var rub = hw.getRubric();
+  assert.strictEqual(rub.id, 'hardpen-kaishu-rubric-v1');
+  assert.deepStrictEqual(rub.dimensions.map(function (d) { return d.weight; }), [30, 50, 20]);
+  assert.strictEqual(rub.items.reduce(function (s, it) { return s + it.weight; }, 0), 100);
+  assert.ok(rub.sources.length >= 3 && rub.sources[0].url.indexOf('neea.edu.cn') > 0);
+  assert.ok(rub.unmeasurable.length >= 4, '必须写明不能离线评判的项目');
+  assert.ok(rub.items.every(function (it) { return it.criterion && it.advice && it.train && it.code; }));
+  rub.dimensions[0].weight = 999;
+  assert.strictEqual(hw.getRubric().dimensions[0].weight, 30);
+  assert.deepStrictEqual(['stroke', 'structure', 'layout'], rub.dimensions.map(function (d) { return d.key; }));
+});
+
+check('等级阈值按量表四档', function () {
+  assert.strictEqual(hw.gradeOf(95).label, '优秀');
+  assert.strictEqual(hw.gradeOf(82).label, '良好');
+  assert.strictEqual(hw.gradeOf(70).label, '合格');
+  assert.strictEqual(hw.gradeOf(40).label, '待改进');
+});
+
+check('中文每个字都有分项分、等级、评判和优化建议', function () {
+  var report = hw.assess(neatChinese());
+  assert.ok(report.ok, dump(report));
+  assert.strictEqual(report.rubric.id, 'hardpen-kaishu-rubric-v1');
+  assert.ok(report.standardNote.indexOf('不识别具体汉字') >= 0);
+  assert.strictEqual(report.characters.length, report.goodCount + report.fixCount);
+  assert.ok(report.charAverage >= 85, dump(report));
+  assert.deepStrictEqual(report.dimensions.map(function (d) { return d.weight; }), [30, 50, 20]);
+  report.characters.forEach(function (c, i) {
+    assert.strictEqual(c.index, i);
+    assert.ok(c.line >= 1 && c.column >= 1);
+    assert.ok(c.verdict.indexOf('第' + c.line + '行第' + c.column + '字') >= 0, c.verdict);
+    assert.ok(c.advice.length > 20, '优化建议不能是空话');
+    assert.ok(c.grade && c.gradeNote && c.level);
+    assert.ok(c.score >= 0 && c.score <= 100);
+    assert.deepStrictEqual(Object.keys(c.scores).sort(), ['layout', 'stroke', 'structure']);
+    assert.strictEqual(c.itemCount, report.rubric.items.length);
+    assert.strictEqual(c.passedCount + c.findings.length, c.itemCount);
+    assert.strictEqual(c.title.length, 4, '圈注短标签必须是四个字');
+    assert.ok(c.box.x >= 0 && c.box.y >= 0 && c.box.x + c.box.w <= 1.01 && c.box.y + c.box.h <= 1.01);
+    assert.ok(report.marks.some(function (m) { return m.charIndex === i; }), '逐字框要能对应到圈注');
+  });
+});
+
+check('失度条款逐条给出判据、改法与练法', function () {
+  var report = hw.assess(unevenChinese());
+  assert.ok(report.ok, dump(report));
+  assert.ok(report.characters.length >= 6, dump(report));
+  var withIssues = report.characters.filter(function (c) { return c.findings.length; });
+  assert.ok(withIssues.length >= 3, '应能定位到具体字');
+  assert.ok(report.characters.some(function (c) {
+    return c.findings.some(function (f) { return f.dimension === 'structure'; });
+  }), '要能命中结构类条款');
+  withIssues.forEach(function (c) {
+    assert.ok(c.verdict.indexOf('主要问题') >= 0, c.verdict);
+    assert.ok(c.advice.indexOf('优先改') >= 0);
+    assert.strictEqual(c.title.length, 4);
+    c.findings.forEach(function (f) {
+      assert.ok(f.code && f.name && f.criterion && f.detail);
+      assert.ok(f.action && f.train, '每条失度都要给改法与练法');
+      assert.ok(f.score >= 0 && f.score <= 100);
+      assert.ok(f.dimension === 'stroke' || f.dimension === 'structure' || f.dimension === 'layout');
+    });
+  });
+});
+
+check('单条明显失度不会被平均分成优秀', function () {
+  var report = hw.assess(unevenChinese());
+  var first = report.characters[0];
+  assert.ok(first.findings.some(function (f) { return f.code === 'S3' && f.score < 62; }), dump(report));
+  assert.notStrictEqual(first.grade, '优秀', dump(report));
+  assert.strictEqual(first.level, 'bad');
+  report.characters.forEach(function (c) {
+    var charIssues = c.findings.filter(function (f) { return f.charLevel; });
+    assert.ok(!(charIssues.length && c.level === 'good'), '字本身有问题的不能挂绿圈');
+    assert.ok(!(charIssues.length && c.grade === '优秀'), '字本身有问题的不能评优秀');
+  });
+});
+
+check('整行字距过挤只压低章法，不把每个字判成不及格', function () {
+  var img = blank(420, 280);
+  var row, col;
+  for (row = 0; row < 3; row++) {
+    for (col = 0; col < 8; col++) hanzi(img, 24 + col * 17, 30 + row * 80, 16);
+  }
+  var report = hw.assess(img);
+  assert.ok(report.ok, dump(report));
+  var layout = report.dimensions.filter(function (d) { return d.key === 'layout'; })[0];
+  assert.ok(layout.score < 70, '章法应反映整行过挤：' + JSON.stringify(report.dimensions));
+  assert.ok(report.score < 85, dump(report));
+  assert.ok(report.charAverage >= 90, '单字分不应被行款问题拉低');
+  report.characters.forEach(function (c) {
+    assert.ok(c.findings.some(function (f) { return f.dimension === 'layout'; }));
+    assert.ok(c.verdict.indexOf('按本行评定') >= 0);
+    assert.ok(c.advice.indexOf('优先改') >= 0);
+    assert.strictEqual(c.level, 'good', '行级问题不应生成逐字红圈');
+    assert.strictEqual(c.title, '写得工整');
+  });
+});
+
+check('工整的字也给出保持意见与进阶建议', function () {
+  var report = hw.assess(neatChinese());
+  report.characters.forEach(function (c) {
+    assert.strictEqual(c.findings.length, 0);
+    assert.strictEqual(c.grade, '优秀');
+    assert.strictEqual(c.level, 'good');
+    assert.ok(c.advice.indexOf('进阶') >= 0, c.advice);
+    assert.ok(c.verdict.indexOf('全部达标') >= 0);
+  });
+});
+
+check('英文与中英混排不套用中文量表', function () {
+  var report = hw.assess(englishPage());
+  assert.ok(report.ok, dump(report));
+  assert.strictEqual(report.script, 'en');
+  assert.strictEqual(report.rubric, null);
+  assert.deepStrictEqual(report.characters, []);
+  assert.strictEqual(report.charAverage, null);
+  assert.strictEqual(report.standardNote, '');
+  assert.ok(report.dimensions.some(function (d) { return d.label === '行齐'; }));
+});
+
+check('书写页能渲染量表、逐字评判与定位按钮（无需浏览器）', function () {
+  var fs = require('fs');
+  var vm = require('vm');
+  var path = require('path');
+  var code = fs.readFileSync(path.join(__dirname, '../diagnose/writing.js'), 'utf8')
+    .replace('var report = null;', 'var report = FAKE_REPORT;');
+  var root = {
+    innerHTML: '',
+    addEventListener: function () {},
+    querySelector: function () { return null; },
+    querySelectorAll: function () { return []; }
+  };
+  var sandbox = {
+    FAKE_REPORT: hw.assess(neatChinese()),
+    window: { CnmHandwriting: hw, addEventListener: function () {} },
+    document: {
+      getElementById: function (id) { return id === 'root' ? root : null; },
+      querySelectorAll: function () { return []; }
+    },
+    setTimeout: setTimeout,
+    clearTimeout: clearTimeout,
+    console: console
+  };
+  vm.runInNewContext(code, sandbox, { filename: 'writing.js' });
+  ['评价标准', '逐字评判', '共性问题', '优化建议', '在图上定位', 'data-filter', '书画等级考试',
+    '本工具不评判的项目', '逐字平均'].forEach(function (text) {
+    assert.ok(root.innerHTML.indexOf(text) >= 0, '页面缺少 ' + text);
+  });
+  assert.ok(root.innerHTML.indexOf('第 1 行 · 第 1 字') >= 0);
+  assert.ok(root.innerHTML.indexOf('优秀 100') >= 0);
+  var page = fs.readFileSync(path.join(__dirname, '../diagnose/writing.html'), 'utf8');
+  assert.ok(page.indexOf('handwriting.js?v=58') >= 0);
+  assert.ok(page.indexOf('writing.js?v=49') >= 0);
+});
