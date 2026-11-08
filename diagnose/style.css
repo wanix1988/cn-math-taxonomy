@@ -306,3 +306,55 @@ button.pq-mark.on { background: rgba(185, 28, 28, 0.42); box-shadow: 0 0 0 2px v
   padding: 10px 0 4px;
   background: var(--bg);
 }
+.hw-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  font-weight: 800;
+}
+.hw-choice.on { background: var(--brand); color: var(--on-brand); border-color: transparent; }
+.hw-choice input { accent-color: currentColor; }
+.hw-drop {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  background: var(--bg-muted);
+}
+.hw-drop p { margin: 0 0 10px; }
+.hw-over { border-color: var(--brand); background: var(--brand-soft); }
+.hw-board { margin-top: 8px; }
+.hw-board canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  background: #f4f1ea;
+}
+.hw-dim { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.hw-dim .name { width: 2.6em; font-weight: 800; }
+.hw-dim .progress { flex: 1; margin: 0; }
+.hw-dim b { width: 2.4em; text-align: right; }
+
+/* 试卷 Agent 交接卡片 */
+.pa-settings {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-muted);
+}
+.pa-settings p { margin: 6px 0; }
+.pa-prompt {
+  display: block;
+  width: 100%;
+  margin: 10px 0;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}

@@ -1,8 +1,10 @@
-/* 试卷质量分析：node tests/test_paper_quality.js */
+/* 试卷质量分析：node tests/test_paper_quality.js
+ * 离线几何、统计、通用综评，以及 Agent 交接协议（请求包 / 结果校验 / 合并）。 */
 'use strict';
 
 var assert = require('assert');
 var pq = require('../assets/paper-quality.js');
+var pa = require('../assets/paper-agent.js');
 
 var passed = 0;
 function check(name, fn) {
@@ -163,9 +165,11 @@ check('同一题上的两处红笔合成一道，没批改的题不记', functio
   for (x = 0; x < 16; x++) for (y = 0; y < 10; y++) page.pen(40 + x, 170 + y);
   var found = pq.analyzePage(page);
   assert.strictEqual(found.length, 1);
-  assert.strictEqual(found[0].number, '2');
+  assert.ok(found[0].prompt.indexOf('题目区域') >= 0 || found[0].prompt.indexOf('第') >= 0);
   assert.ok(found[0].y < 160 && found[0].y + found[0].h > 170);
-  assert.ok(found[0].prompt.indexOf('第2个题目区域') >= 0);
+  assert.strictEqual(found[0].source, 'offline');
+  assert.strictEqual(found[0].correction, '');
+  assert.strictEqual(found[0].knowledge, '');
 });
 
 check('细叉号和蓝笔也能收成错题，页角小分数章略过', function () {
@@ -219,7 +223,6 @@ check('对勾和它上方的划线不算错题，圈出的答案仍然算', func
   }
   var found = pq.analyzePage(page);
   assert.strictEqual(found.length, 1);
-  assert.strictEqual(found[0].number, '2');
   assert.strictEqual(found[0].kind, '圈出');
 });
 
@@ -230,105 +233,290 @@ check('只有图片、还没标错题时提示去标注', function () {
   assert.strictEqual(report.subjects[0].paperCount, 1);
 });
 
-check('认出这份练习时，圈出的 17 按扣分计，满分默认 100', function () {
-  var marks = [
-    { number: '8', knowledge: '积的变化规律', reason: '概念不清', reasonNote: '以为可以拼在一起', studentAnswer: 'D.×6=', rightAnswer: 'C' },
-    { number: '1', knowledge: '乘法估算', reason: '计算失误', reasonNote: '计算错误', studentAnswer: 'C.180000', rightAnswer: 'D' },
-    { number: '6', knowledge: '乘法运算律', reason: '计算失误', reasonNote: '计算错误', studentAnswer: 'C.3', rightAnswer: 'B' }
-  ];
-  var summary = pq.summarizeExam({ title: '四年级数学·乘法与运算律', grade: '四年级', score: '83', total: '100' }, marks);
-  assert.strictEqual(summary.title, '综评结论');
-  assert.ok(summary.text.indexOf('第 1、6、8 题') >= 0);
-  assert.ok(summary.text.indexOf('得分 83') >= 0);
-  assert.ok(summary.text.indexOf('满分 100') >= 0);
-  assert.ok(summary.text.indexOf('17 是扣分') >= 0);
-  assert.ok(summary.text.indexOf('等级 A') >= 0);
-  assert.ok(summary.text.indexOf('×10=') >= 0);
-  assert.ok(summary.text.indexOf('35×100+1×') >= 0);
-  assert.ok(summary.text.indexOf('1×35') < 0);
+/* ===== 通用综评 ===== */
+
+check('任意新试卷的综评只按录入信息生成，不套具体卷子', function () {
+  var summary = pq.summarizeExam(
+    { title: '七年级期中', grade: '七上', subject: 'math', score: 72, total: 100 },
+    [
+      { number: '12', knowledge: '一次函数', reason: '概念不清', reasonNote: '把 k 当成截距', studentAnswer: 'B', rightAnswer: 'C' },
+      { number: '18', knowledge: '一元一次不等式', reason: '计算失误', studentAnswer: 'x>3', rightAnswer: 'x<3' }
+    ]
+  );
+  assert.strictEqual(summary.source, 'offline');
+  assert.ok(summary.text.indexOf('七年级期中') >= 0);
+  assert.ok(summary.text.indexOf('得分 72') >= 0);
+  assert.ok(summary.text.indexOf('第 12、18 题') >= 0);
+  assert.ok(summary.text.indexOf('一次函数') >= 0);
+  assert.ok(summary.text.indexOf('孩子答 B') >= 0);
+  assert.ok(summary.text.indexOf('订正 C') >= 0);
+  assert.ok(summary.text.indexOf('卷面旁注「把 k 当成截距」') >= 0);
+  assert.ok(summary.text.indexOf('概念不清 1 道') >= 0);
+  ['9000', '×10=', '四年级数学', '17 是扣分', '25 是扣分', '第16题', '判断错误', '交换律'].forEach(function (word) {
+    assert.ok(summary.text.indexOf(word) < 0, '综评里不该出现旧卷内容：' + word);
+  });
 });
 
-check('第3、4页按圈出的题写综评', function () {
-  var marks = [
-    { number: '15', rightAnswer: '交换', knowledge: '乘法交换律' },
-    { number: '17', rightAnswer: '1000；100', reasonNote: '判断错误' },
-    { number: '20', rightAnswer: '75' },
-    { number: '23', rightAnswer: '1072' },
-    { number: '26', rightAnswer: '1620人' }
-  ];
-  var summary = pq.summarizeExam({ title: '四年级数学·乘法与运算律', score: '83', total: '100' }, marks);
-  assert.ok(summary.text.indexOf('第15、17、20、23、26题') >= 0);
-  assert.ok(summary.text.indexOf('第16题的括号已经按先求和') >= 0);
-  assert.ok(summary.text.indexOf('原因是判断错误') >= 0);
-  assert.ok(summary.text.indexOf('交换律') >= 0);
-  assert.ok(summary.text.indexOf('1072') >= 0);
-  assert.ok(summary.text.indexOf('9000不是这道题的得数') >= 0);
-  assert.ok(summary.text.indexOf('1620') >= 0);
-  assert.ok(summary.text.indexOf('2044') >= 0);
-  assert.ok(summary.text.indexOf('%') < 0);
+check('卷头扣分按字段写，不写死某一份卷的分数', function () {
+  var one = pq.summarizeExam({ title: '单元卷', score: 75, total: 100, deduction: 25 }, [{ number: '2' }]);
+  assert.ok(one.text.indexOf('25 是扣分') >= 0);
+  var two = pq.summarizeExam({ title: '另一份卷', score: 91, total: 100, deduction: 9 }, [{ number: '5' }]);
+  assert.ok(two.text.indexOf('9 是扣分') >= 0);
+  assert.ok(two.text.indexOf('25') < 0);
+});
+
+check('Agent 综评优先，且标明来源', function () {
+  var summary = pq.summarizeExam({ title: '练习', agentSummary: 'Agent 写的综评' }, [{ number: '1' }]);
+  assert.strictEqual(summary.source, 'agent');
+  assert.strictEqual(summary.text, 'Agent 写的综评');
 });
 
 check('没有错题时综评先空着', function () {
   var summary = pq.summarizeExam({ title: '练习', score: '', total: '' }, []);
   assert.ok(summary.text.indexOf('综评先空着') >= 0);
+  assert.strictEqual(summary.source, 'offline');
 });
 
-check('其他试卷按错题和错因写综评', function () {
-  var summary = pq.summarizeExam({ title: '期中', grade: '五年级', subject: 'math', score: 18, total: '' }, [
-    { number: '2', knowledge: '分数加减', reason: '概念不清', rightAnswer: 'A' }
-  ]);
-  assert.ok(summary.text.indexOf('五年级 期中') >= 0);
-  assert.ok(summary.text.indexOf('得分 18') >= 0);
-  assert.ok(summary.text.indexOf('满分 100') >= 0);
-  assert.ok(summary.text.indexOf('第 2 题') >= 0);
-  assert.ok(summary.text.indexOf('概念不清 1 道') >= 0);
-  assert.ok(summary.text.indexOf('分数加减') >= 0);
-  var rated = pq.summarizeExam({ title: '期末', subject: 'math', score: 80, total: 100 }, [
-    { number: '3', knowledge: '小数乘法', reason: '计算失误' }
-  ]);
-  assert.ok(rated.text.indexOf('满分 100') >= 0);
+check('离线分析不再给任何试卷预填标题、得分或订正', function () {
+  var page = sheet(160, 220);
+  var x, y;
+  for (y = 40; y < 70; y++) for (x = 20; x < 50; x++) page.pen(x, y);
+  var found = pq.analyzePage(page);
+  assert.ok(found.length >= 1);
+  found.forEach(function (q) {
+    assert.strictEqual(q.correction, '');
+    assert.strictEqual(q.knowledge, '');
+    assert.strictEqual(q.reason, '');
+    assert.strictEqual(q.source, 'offline');
+  });
+  assert.ok(!found.sheet || !found.sheet.score, '离线不该猜得分');
+  assert.ok(!found.sheet || !found.sheet.title, '离线不该写死试卷名');
 });
 
-check('认识更大的数按扣分 25 计，不套乘法卷的 83 分', function () {
+/* ===== Agent 交接协议 ===== */
+
+var BUNDLE = {
+  title: '', grade: '', subject: 'math', score: '', total: '100',
+  pages: [{
+    id: 'g1', width: 800, height: 1000, sourceName: 'page1.jpg',
+    marks: [
+      { id: 'w1', number: '3', x: 0.1, y: 0.2, w: 0.2, h: 0.05, kind: '圈出', numberConfident: true, prompt: '自动标出：第3题，圈出', knowledge: '', reason: '', rightAnswer: '' },
+      { id: 'w2', number: '7', x: 0.6, y: 0.5, w: 0.2, h: 0.05, kind: '叉号', numberConfident: false, prompt: '自动标出', knowledge: '', reason: '', rightAnswer: '' }
+    ]
+  }]
+};
+
+var AGENT_RESULT = {
+  schemaVersion: 1,
+  kind: 'paper-analysis-result',
+  paper: {
+    title: '新卷', grade: '七上', subject: 'math', score: 88, total: 100,
+    summary: 'Agent 写的综评', suggestions: ['先补分数', '再做变式']
+  },
+  pages: [{
+    index: 0,
+    items: [
+      { number: '3', prompt: '题目原文', knowledge: '分数加减', reason: '计算失误', reasonNote: '算错', studentAnswer: 'B', rightAnswer: 'A', x: 0.1, y: 0.2, w: 0.2, h: 0.05 },
+      { number: '9', prompt: '离线漏掉的题', knowledge: '小数乘法', x: 0.3, y: 0.7, w: 0.2, h: 0.05 }
+    ]
+  }]
+};
+
+check('请求包含页、候选框、词表和输出格式，默认不带照片', function () {
+  var req = pq.buildAgentRequest(BUNDLE, { knowledgeCatalog: ['分数加减', '小数乘法'] });
+  assert.strictEqual(req.schemaVersion, pq.AGENT_SCHEMA_VERSION);
+  assert.strictEqual(req.kind, 'paper-analysis-request');
+  assert.strictEqual(req.pages.length, 1);
+  assert.strictEqual(req.pages[0].image, null);
+  assert.strictEqual(req.pages[0].candidates.length, 2);
+  assert.strictEqual(req.pages[0].candidates[0].box.x, 0.1);
+  assert.strictEqual(req.pages[0].candidates[0].numberConfident, true);
+  assert.strictEqual(req.catalog.knowledgeHints[0], '分数加减');
+  assert.ok(req.instructions.indexOf('JSON') >= 0);
+  assert.ok(req.instructions.indexOf('概念不清') >= 0);
+  assert.ok(req.outputSchema.pages[0].items[0].reason.indexOf('概念不清') >= 0);
+});
+
+check('勾选后才把照片放进请求包', function () {
+  var withPhoto = {
+    pages: [{ marks: BUNDLE.pages[0].marks, imageDataUrl: 'data:image/jpeg;base64,AAAA' }]
+  };
+  var req = pq.buildAgentRequest(withPhoto, { includeImages: true });
+  assert.strictEqual(req.pages[0].image, 'data:image/jpeg;base64,AAAA');
+  var req2 = pq.buildAgentRequest(withPhoto, { includeImages: false });
+  assert.strictEqual(req2.pages[0].image, null);
+});
+
+check('解析 Agent 回复：代码块、前后说明和非法内容', function () {
+  assert.strictEqual(pq.parseAgentText('```json\n{"a":1}\n```').a, 1);
+  assert.strictEqual(pq.parseAgentText('以下是结果：\n{"a":2}\n以上').a, 2);
+  assert.throws(function () { pq.parseAgentText('没有 JSON'); });
+  assert.throws(function () { pq.parseAgentText('```json\n{bad json}\n```'); });
+});
+
+check('结果校验：清洗错因、夹住坐标、拒绝错格式', function () {
+  var raw = {
+    schemaVersion: 1, kind: 'paper-analysis-result',
+    paper: { title: '新卷' },
+    pages: [{ index: 0, items: [{ number: '3', reason: '外星人干扰', x: 2, y: -1, w: 0.2, h: 0.1 }] }]
+  };
+  var v = pq.validateAgentResult(raw);
+  assert.ok(v.ok);
+  assert.strictEqual(v.result.pages[0].items[0].reason, '');
+  assert.ok(v.warnings.some(function (w) { return w.indexOf('错因') >= 0; }));
+  assert.strictEqual(v.result.pages[0].items[0].box, null, '起点被夹到边界后框宽为 0，应视为没给框');
+  var edge = pq.validateAgentResult({ pages: [{ items: [{ x: 0.8, y: 0.9, w: 0.6, h: 0.5 }] }] });
+  assert.ok(Math.abs(edge.result.pages[0].items[0].box.w - 0.2) < 1e-9);
+  assert.ok(Math.abs(edge.result.pages[0].items[0].box.h - 0.1) < 1e-9);
+  assert.strictEqual(pq.validateAgentResult({ kind: 'not-a-result', pages: [] }).ok, false);
+  assert.strictEqual(pq.validateAgentResult({ schemaVersion: 99 }).ok, false);
+  assert.strictEqual(pq.validateAgentResult({ pages: 'oops' }).ok, false);
+  assert.strictEqual(pq.validateAgentResult('```json\n' + JSON.stringify(raw) + '\n```').ok, true);
+});
+
+check('合并结果：按题号更新、漏掉的题新建、卷头字段与综评写入', function () {
+  var out = pq.applyAgentResult(BUNDLE, AGENT_RESULT);
+  assert.strictEqual(out.applied.updated, 1);
+  assert.strictEqual(out.applied.created, 1);
+  var page = out.bundle.pages[0];
+  assert.strictEqual(page.marks.length, 2, '没被 Agent 对上的自动标记应清掉');
+  assert.strictEqual(out.applied.pruned, 1);
+  var q3 = page.marks.filter(function (m) { return m.number === '3'; })[0];
+  assert.strictEqual(q3.knowledge, '分数加减');
+  assert.strictEqual(q3.rightAnswer, 'A');
+  assert.strictEqual(q3.prompt, '题目原文');
+  assert.strictEqual(q3.reason, '计算失误');
+  assert.ok(page.marks.some(function (m) { return m.number === '9' && m.agent; }));
+  assert.strictEqual(out.bundle.title, '新卷');
+  assert.strictEqual(out.bundle.score, '88');
+  assert.strictEqual(out.bundle.agentSummary, 'Agent 写的综评');
+  assert.deepStrictEqual(out.bundle.agentSuggestions, ['先补分数', '再做变式']);
+  assert.strictEqual(pq.summarizeExam(out.bundle, page.marks).source, 'agent');
+  assert.strictEqual(BUNDLE.pages[0].marks[0].knowledge, '', '入参不该被修改');
+});
+
+check('合并结果：默认不覆盖人工已填，可显式覆盖', function () {
+  var manual = JSON.parse(JSON.stringify(BUNDLE));
+  manual.pages[0].marks[0].knowledge = '人工填的知识点';
+  var out = pq.applyAgentResult(manual, AGENT_RESULT);
+  assert.strictEqual(out.bundle.pages[0].marks.filter(function (m) { return m.number === '3'; })[0].knowledge, '人工填的知识点');
+  var forced = pq.applyAgentResult(manual, AGENT_RESULT, { overwrite: true });
+  assert.strictEqual(forced.bundle.pages[0].marks.filter(function (m) { return m.number === '3'; })[0].knowledge, '分数加减');
+});
+
+check('合并结果：题号对不上时按框匹配，重复导入是幂等的', function () {
+  var byBox = {
+    schemaVersion: 1, kind: 'paper-analysis-result',
+    paper: {}, pages: [{ index: 0, items: [{ prompt: '按框匹配', knowledge: '角的度量', x: 0.6, y: 0.5, w: 0.2, h: 0.05 }] }]
+  };
+  var out = pq.applyAgentResult(BUNDLE, byBox);
+  assert.strictEqual(out.applied.updated, 1);
+  assert.strictEqual(out.applied.created, 0);
+  var q7 = out.bundle.pages[0].marks.filter(function (m) { return m.number === '7'; })[0];
+  assert.strictEqual(q7.knowledge, '角的度量');
+  var once = pq.applyAgentResult(BUNDLE, AGENT_RESULT);
+  var twice = pq.applyAgentResult(once.bundle, AGENT_RESULT);
+  assert.deepStrictEqual(twice.applied, { updated: 0, created: 0, paperFields: 0, pruned: 0 });
+  assert.strictEqual(twice.bundle.pages[0].marks.length, once.bundle.pages[0].marks.length);
+});
+
+check('请求包带卷头线索，提示词能脱离请求包单独使用', function () {
+  var bundle = JSON.parse(JSON.stringify(BUNDLE));
+  bundle.headerHint = '83';
+  bundle.deduction = '';
+  var req = pq.buildAgentRequest(bundle, {});
+  assert.strictEqual(req.paper.headerHint, '83');
+  assert.ok(req.instructions.indexOf('共 2 个离线候选') >= 0, '候选总数不能写成每页 2 个');
+  assert.ok(req.instructions.indexOf('#3*[0.1,0.2,0.2,0.05]') >= 0, '提示词要直接列出候选框');
+  assert.ok(req.instructions.indexOf('一张照片可能拍到跨页') >= 0);
+  assert.ok(req.instructions.indexOf('照片必须随请求一起提供') >= 0);
+  assert.ok(req.instructions.indexOf('83') >= 0, '卷头读到的数字要作为线索交给 Agent');
+  assert.ok(req.outputSchema.pages[0].items[0].match.indexOf('new') >= 0);
+});
+
+check('同题号但位置对不上时不误合并，未确认的自动标记被清掉', function () {
+  var bundle = {
+    pages: [{ marks: [
+      { id: 'a', number: '12', x: 0.89, y: 0.46, w: 0.03, h: 0.04, prompt: '自动标出：第12题，圈出', source: 'offline', auto: true, knowledge: '', reason: '' },
+      { id: 'b', number: '7', x: 0.6, y: 0.5, w: 0.2, h: 0.05, prompt: '人工补的题', knowledge: '分数加减' }
+    ] }]
+  };
+  var result = { pages: [{ index: 0, items: [
+    { number: '12', prompt: '真正的第12题', knowledge: '单位换算', x: 0.55, y: 0.37, w: 0.2, h: 0.1 }
+  ] }] };
+  var out = pq.applyAgentResult(bundle, result);
+  assert.strictEqual(out.applied.created, 1);
+  assert.strictEqual(out.applied.updated, 0);
+  assert.strictEqual(out.applied.pruned, 1);
+  assert.strictEqual(out.bundle.pages[0].marks.length, 2);
+  var q12 = out.bundle.pages[0].marks.filter(function (m) { return m.number === '12'; })[0];
+  assert.strictEqual(q12.x, 0.55, '新错题用 Agent 给的框，不要落到远处误认的框上');
+  assert.ok(out.bundle.pages[0].marks.some(function (m) { return m.number === '7' && m.knowledge === '分数加减'; }), '人工标的不被清掉');
+  var again = pq.applyAgentResult(out.bundle, result);
+  assert.deepStrictEqual(again.applied, { updated: 0, created: 0, paperFields: 0, pruned: 0 });
+  var forced = pq.applyAgentResult(bundle, { pages: [{ index: 0, items: [
+    { number: '12', match: 'number', prompt: '强制按题号合并', x: 0.55, y: 0.37, w: 0.2, h: 0.1 }
+  ] }] });
+  assert.strictEqual(forced.applied.updated, 1, 'match:number 是显式逃生口');
+  var kept = pq.applyAgentResult(bundle, result, { keepOffline: true });
+  assert.strictEqual(kept.applied.pruned, 0);
+  assert.strictEqual(kept.bundle.pages[0].marks.length, 3);
+});
+
+check('Agent 能改正默认的满分 100，人工改过的满分不被覆盖', function () {
+  var res = { paper: { total: 120, score: 105 }, pages: [] };
+  assert.strictEqual(pq.applyAgentResult({ total: '100', totalEdited: false, pages: [] }, res).bundle.total, '120');
+  assert.strictEqual(pq.applyAgentResult({ total: '100', totalEdited: true, pages: [] }, res).bundle.total, '100');
+  assert.strictEqual(pq.applyAgentResult({ total: '100', totalEdited: true, pages: [] }, res, { overwrite: true }).bundle.total, '120');
+});
+
+check('match:new 的错题重复导入仍然幂等', function () {
+  var bundle = { title: '', pages: [{ marks: [
+    { id: 'off1', x: 0.2, y: 0.2, w: 0.1, h: 0.05, auto: true, source: 'offline', number: '5', prompt: '自动标出：从上往下第5个题目区域，圈出' }
+  ] }] };
+  var res = { paper: {}, pages: [{ index: 0, items: [
+    { number: '六(一)2', prompt: '补充思维导图', match: 'new', x: 0.4, y: 0.3, w: 0.2, h: 0.08 },
+    { number: '六(二)1', prompt: '解释千辛万苦', match: 'new', x: 0.4, y: 0.5, w: 0.2, h: 0.08 }
+  ] }] };
+  var first = pq.applyAgentResult(bundle, res);
+  assert.strictEqual(first.applied.created, 2);
+  assert.strictEqual(first.applied.pruned, 1, '没被认领的自动标记要清掉');
+  var second = pq.applyAgentResult(first.bundle, res);
+  assert.strictEqual(second.applied.created, 0, '强制新建不能让重复导入一次多一批');
+  assert.strictEqual(second.bundle.pages[0].marks.length, first.bundle.pages[0].marks.length);
+  assert.deepStrictEqual(second.applied, { updated: 0, created: 0, paperFields: 0, pruned: 0 });
+});
+
+check('预填的年级学科可被卷面结果纠正，人工改过的不动', function () {
+  var res = { paper: { grade: '四年级', subject: 'chinese' }, pages: [] };
+  var prefilled = { grade: '五年级', subject: 'math', gradeEdited: false, subjectEdited: false, pages: [] };
+  var fixed = pq.applyAgentResult(prefilled, res).bundle;
+  assert.strictEqual(fixed.grade, '四年级');
+  assert.strictEqual(fixed.subject, 'chinese');
+  var manual = { grade: '五年级', subject: 'math', gradeEdited: true, subjectEdited: true, pages: [] };
+  var kept = pq.applyAgentResult(manual, res).bundle;
+  assert.strictEqual(kept.grade, '五年级');
+  assert.strictEqual(kept.subject, 'math');
+  var forced = pq.applyAgentResult(manual, res, { overwrite: true }).bundle;
+  assert.strictEqual(forced.grade, '四年级');
+});
+
+check('综评的题号清单去重，重复小题仍逐条统计', function () {
   var marks = [
-    { number: '2', knowledge: '线与角', reason: '概念不清', reasonNote: '不是自己试', studentAnswer: 'A.一定互相垂直', rightAnswer: 'C' },
-    { number: '5', knowledge: '大数的写法', reason: '概念不清', reasonNote: '不分段', studentAnswer: 'B', rightAnswer: 'C' },
-    { number: '7', knowledge: '大数与单位', reason: '计算失误', reasonNote: '认真算', studentAnswer: 'C.50吨', rightAnswer: 'A' },
-    { number: '11', knowledge: '四舍五入', reason: '计算失误', reasonNote: '忘记四舍五入', studentAnswer: '713万', rightAnswer: '714万' }
+    { number: '24', knowledge: '多边形内角和', reason: '概念不清' },
+    { number: '24', knowledge: '多边形内角和逆推', reason: '计算失误' },
+    { number: '12', knowledge: '单位换算' }
   ];
-  var summary = pq.summarizeExam({ title: '四年级数学·大数与线角', grade: '四年级', score: '75', total: '100' }, marks);
-  assert.ok(summary.text.indexOf('得分 75') >= 0);
-  assert.ok(summary.text.indexOf('25 是扣分') >= 0);
-  assert.ok(summary.text.indexOf('第2、5、7、11题') >= 0);
-  assert.ok(summary.text.indexOf('714万') >= 0);
-  assert.ok(summary.text.indexOf('得分 83') < 0);
-  assert.ok(summary.text.indexOf('第15') < 0);
+  var s = pq.summarizeExam({ title: '阶段卷', score: 83, total: 100 }, marks);
+  assert.ok(s.text.indexOf('共记下 3 道错题') >= 0);
+  assert.ok(s.text.indexOf('第 12、24 题') >= 0);
+  assert.ok(s.text.indexOf('24、24') < 0);
+  assert.ok(s.text.indexOf('错因里概念不清 1 道，计算失误 1 道') >= 0);
 });
 
-check('认识更大的数第3、4页按这6道错题写，整份合在一起', function () {
-  var back = [
-    { number: '19', knowledge: '周角和平角', rightAnswer: '2；4', studentAnswer: '2；8' },
-    { number: '20', knowledge: '角的度量', rightAnswer: '度，记作1°', studentAnswer: '角度' },
-    { number: '22', knowledge: '画线段和垂线', rightAnswer: '按题画出3厘米线段、垂线和平行线' },
-    { number: '23', knowledge: '大数的数位', rightAnswer: '（1）标出约34万；（2）标在33万右侧很近的位置' },
-    { number: '24', knowledge: '零的读法', rightAnswer: '没有下划线的不连' },
-    { number: '26', knowledge: '角的计算', rightAnswer: '写出过程', studentAnswer: '∠1=20°' }
-  ];
-  var only = pq.summarizeExam({ score: '75', total: '100' }, back);
-  assert.ok(only.text.indexOf('第3、4页') >= 0);
-  assert.ok(only.text.indexOf('第19、20、22、23、24、26题') >= 0);
-  assert.ok(only.text.indexOf('25 是扣分') >= 0);
-  assert.ok(only.text.indexOf('得分 75') >= 0);
-  assert.ok(only.text.indexOf('4个直角') >= 0);
-  var front = [
-    { number: '2', knowledge: '线与角', rightAnswer: 'C' },
-    { number: '5', knowledge: '大数的写法', rightAnswer: 'C' },
-    { number: '7', knowledge: '大数与单位', rightAnswer: 'A' },
-    { number: '11', knowledge: '四舍五入', rightAnswer: '714万' }
-  ];
-  var both = pq.summarizeExam({ score: '75', total: '100' }, front.concat(back));
-  assert.ok(both.text.indexOf('第2、5、7、11题和第19、20、22、23、24、26题') >= 0);
-  assert.ok(both.text.indexOf('得分 83') < 0);
+check('非法结果不会被合并进去', function () {
+  assert.throws(function () { pq.applyAgentResult(BUNDLE, { kind: 'wrong' }); });
+  assert.throws(function () { pq.applyAgentResult(BUNDLE, '不是 JSON'); });
 });
 
 check('同一份照片判为重复试卷，另一份照片可以录入', function () {
@@ -343,6 +531,69 @@ check('同一份照片判为重复试卷，另一份照片可以录入', functio
   assert.strictEqual(pq.duplicateOf([{ sourceDigest: 'aaa' }], stored, 'p1'), null);
 });
 
+check('试卷导入页能渲染 Agent 交接卡片（无需浏览器）', function () {
+  var fs = require('fs');
+  var vm = require('vm');
+  var path = require('path');
+  var code = fs.readFileSync(path.join(__dirname, '../diagnose/papers.js'), 'utf8');
+  var root = {
+    innerHTML: '',
+    addEventListener: function () {},
+    querySelector: function () { return null; },
+    querySelectorAll: function () { return []; }
+  };
+  var sandbox = {
+    window: { CnmPapers: pq, CnmPaperAgent: pa, addEventListener: function () {} },
+    document: {
+      getElementById: function (id) { return id === 'root' ? root : null; },
+      querySelectorAll: function () { return []; },
+      body: { classList: { toggle: function () {} } },
+      addEventListener: function () {}
+    },
+    location: { hash: '#/new', search: '' },
+    URLSearchParams: URLSearchParams,
+    navigator: { clipboard: null },
+    URL: { createObjectURL: function () { return 'blob:x'; }, revokeObjectURL: function () {} },
+    setTimeout: setTimeout,
+    clearTimeout: clearTimeout,
+    console: console,
+    Promise: Promise,
+    Date: Date,
+    Blob: Blob,
+    FileReader: function () {},
+    Image: function () {},
+    confirm: function () { return false; }
+  };
+  vm.runInNewContext(code, sandbox, { filename: 'papers.js' });
+  assert.ok(root.innerHTML.indexOf('id="pa-card"') >= 0, '页面没有渲染 Agent 卡片');
+  ['pa-copy', 'pa-download', 'pa-result', 'pa-paste', 'pa-paste-apply', 'pa-toggle', 'pa-analyze', 'pa-include-images', 'pa-overwrite', 'pa-msg'].forEach(function (id) {
+    assert.ok(root.innerHTML.indexOf('id="' + id + '"') >= 0, '缺少界面元素 ' + id);
+  });
+  assert.ok(root.innerHTML.indexOf('照片默认不离开这台设备') >= 0);
+});
+
+check('直连模型默认关闭，端点自动补 chat/completions', function () {
+  var cfg = pa.loadConfig();
+  assert.strictEqual(cfg.enabled, false, '默认不能发送照片');
+  assert.strictEqual(pa.endpointUrl('https://example.com/v1'), 'https://example.com/v1/chat/completions');
+  assert.strictEqual(pa.endpointUrl('https://example.com/v1/chat/completions'), 'https://example.com/v1/chat/completions');
+});
+
+check('请求体带提示词和照片，没有照片的页跳过', function () {
+  var req = pq.buildAgentRequest({
+    pages: [
+      { imageDataUrl: 'data:image/jpeg;base64,AAAA', sourceName: 'p1.jpg' },
+      { imageDataUrl: null }
+    ]
+  }, { includeImages: true });
+  var built = pa.buildRequestBody(req, { model: 'vision-x', jsonMode: false });
+  assert.strictEqual(built.imageCount, 1);
+  assert.strictEqual(built.body.model, 'vision-x');
+  assert.ok(built.body.messages[0].content.indexOf('JSON') >= 0);
+  assert.ok(built.body.messages[1].content.some(function (part) { return part.type === 'image_url'; }));
+  assert.ok(!built.body.response_format);
+});
+
 Promise.resolve().then(function () {
   var one = new Blob(['page-a']);
   var two = new Blob(['page-a']);
@@ -354,7 +605,55 @@ Promise.resolve().then(function () {
         assert.notStrictEqual(a, c);
         passed++;
         console.log('ok ' + passed + ' 同一张照片的摘要相同');
-        console.log(passed + ' passed');
+        return pq.blobToDataUrl(new Blob(['abc'], { type: 'image/jpeg' })).then(function (url) {
+          assert.ok(url.indexOf('data:image/jpeg;base64,') === 0);
+          passed++;
+          console.log('ok ' + passed + ' 勾选后照片可以转成 data URL');
+          var req = pq.buildAgentRequest({ pages: [{ imageDataUrl: 'data:image/png;base64,AAAA' }] }, { includeImages: true });
+          return pa.analyze(req, { enabled: false, endpoint: 'https://x/v1', model: 'vision-x' }, function () {
+            throw new Error('默认关闭时不该发起请求');
+          }).then(function () {
+            throw new Error('默认关闭时应该拒绝');
+          }, function (err) {
+            assert.ok(err.message.indexOf('没有开启') >= 0);
+          });
+        }).then(function () {
+          passed++;
+          console.log('ok ' + passed + ' 直连默认关闭时不发送照片');
+          var req = pq.buildAgentRequest({ pages: [{ imageDataUrl: 'data:image/png;base64,AAAA' }] }, { includeImages: true });
+          var cfg = { enabled: true, endpoint: 'https://x/v1', model: 'vision-x', apiKey: 'k', timeoutMs: 2000, jsonMode: false };
+          var seen = null;
+          var fake = function (url, init) {
+            seen = { url: url, init: init };
+            return Promise.resolve({
+              ok: true,
+              json: function () {
+                return Promise.resolve({ choices: [{ message: { content: '```json\n' + JSON.stringify(AGENT_RESULT) + '\n```' } }] });
+              }
+            });
+          };
+          return pa.analyze(req, cfg, fake).then(function (out) {
+            assert.ok(seen.url.indexOf('/chat/completions') >= 0);
+            assert.ok(seen.init.headers.Authorization.indexOf('Bearer k') >= 0);
+            assert.strictEqual(out.imageCount, 1);
+            assert.ok(pq.validateAgentResult(out.result).ok);
+            passed++;
+            console.log('ok ' + passed + ' 直连返回的结果可以直接通过协议校验');
+          });
+        }).then(function () {
+          var noPhoto = pq.buildAgentRequest({ pages: [{}] }, { includeImages: true });
+          return pa.analyze(noPhoto, { enabled: true, endpoint: 'https://x/v1', model: 'vision-x' }, function () {
+            throw new Error('没有照片时不该发起请求');
+          }).then(function () {
+            throw new Error('没有照片时应该拒绝');
+          }, function (err) {
+            assert.ok(err.message.indexOf('没有照片') >= 0);
+            passed++;
+            console.log('ok ' + passed + ' 请求包没有照片时拒绝发送');
+          });
+        }).then(function () {
+          console.log(passed + ' passed');
+        });
       });
     });
   });

@@ -3,6 +3,11 @@
   'use strict';
 
   var PQ = window.CnmPapers;
+  var PA = window.CnmPaperAgent || null;
+  var agentSettingsOpen = false;
+  var agentIncludeImages = false;
+  var agentOverwrite = false;
+  var knowledgeCache = null;
   var root = document.getElementById('root');
   var draft = null;
   var dirty = false;
@@ -97,8 +102,14 @@
       examDate: today(),
       score: '',
       total: '100',
+      deduction: '',
+      headerHint: '',
+      agentSummary: '',
+      agentSuggestions: [],
       totalEdited: false,
       scoreEdited: false,
+      gradeEdited: false,
+      subjectEdited: false,
       childId: child ? child.id : null,
       childName: child ? child.name : '',
       createdAt: '',
@@ -239,6 +250,7 @@
     var html = '<section class="card">';
     html += '<h1>试卷质量分析</h1>';
     html += '<p class="muted">导入已批改的试卷图片。圈在答案上的算错题，同一题只记一道。旁边写了订正和原因的，能认出就填进对应栏，认不出再手写补。对勾，以及对勾上面那道表示本页有错题的划线，不记成单题。照片可以放大、缩小和旋转。</p>';
+    html += '<p class="small">中文或英文写得工不工整，用 <a href="writing.html">书写质量</a> 看。</p>';
     if (child) {
       html += '<div class="row" style="margin-top:10px"><span class="tag">当前孩子：' + esc(child.name) + '</span>';
       html += '<button type="button" data-filter="child"' + (childFilter === 'child' ? ' class="primary"' : '') + '>只看这个孩子</button>';
@@ -383,8 +395,14 @@
         examDate: paper.examDate || '',
         score: paper.score == null ? '' : String(paper.score),
         total: paper.total == null || paper.total === '' ? '100' : String(paper.total),
+        deduction: paper.deduction == null ? '' : String(paper.deduction),
+        headerHint: '',
+        agentSummary: paper.agentSummary || '',
+        agentSuggestions: Array.isArray(paper.agentSuggestions) ? paper.agentSuggestions : [],
         totalEdited: !(paper.total == null || paper.total === ''),
         scoreEdited: !(paper.score == null || paper.score === ''),
+        gradeEdited: !!String(paper.grade || '').trim(),
+        subjectEdited: !!String(paper.subject || '').trim(),
         childId: paper.childId,
         childName: paper.childName || '',
         createdAt: paper.createdAt,
@@ -401,6 +419,7 @@
               return {
                 id: it.id,
                 x: it.x, y: it.y, w: it.w, h: it.h, auto: !!it.auto,
+                kind: it.kind || '', numberConfident: it.numberConfident === true, source: it.source || '',
                 number: it.number || '', prompt: it.prompt || '', knowledge: it.knowledge || '',
                 reason: it.reason || '', reasonNote: it.reasonNote || '',
                 studentAnswer: it.studentAnswer || '', rightAnswer: it.rightAnswer || '',
@@ -424,7 +443,7 @@
     var html = '<section class="card">';
     html += '<p><a href="#/">返回列表</a></p>';
     html += '<h1>' + (draft.id ? '编辑试卷' : '导入试卷') + '</h1>';
-    html += '<p class="muted">选择已批改试卷的照片。照片不论横着、竖着还是倒着拍，查看时都会转正。认得出的试卷名称、年级、得分，以及错题的完整题目、知识点、孩子的答案、订正和原因会先填上，卷面没有的再补。导入后给出这份试卷的综评结论。对勾和它上方的页标划线不算单题。同一份照片已经在错题库里时，不再录入。</p>';
+    html += '<p class="muted">选择已批改试卷的照片，照片会自动转正。本机只做通用识别：找出红笔批改、分栏和题目区域，标出候选错题与题号。题目文字、手写订正、知识点和针对性讲评交给 Agent 分析后导入，或自己补录。同一份照片已经在错题库里时，不再录入。</p>';
     if (draft.childName) html += '<p class="small">记在「' + esc(draft.childName) + '」名下。</p>';
     html += '<div class="pq-form">';
     html += field('试卷名称', '<input id="pq-title" type="text" maxlength="40" value="' + esc(draft.title) + '" placeholder="例如：四年级期中数学">');
@@ -437,8 +456,10 @@
     html += '<div class="row"><label class="btn btn-primary">添加试卷图片';
     html += '<input id="pq-files" class="pq-file" type="file" accept="image/*" multiple></label>';
     html += '<button type="button" id="pq-rescan"' + (draft.pages.length ? '' : ' disabled') + '>重新自动分析</button></div>';
+    if (draft.headerHint) html += '<p class="small muted">卷头读到数字 ' + esc(draft.headerHint) + '，可能是得分也可能是扣分，请核对后自己填写。</p>';
     html += '<p id="pq-msg" class="small" role="status"></p>';
     html += '</section>';
+    html += agentCard();
     html += conclusionCard();
 
     draft.pages.forEach(function (page, pi) {
@@ -503,14 +524,20 @@
       grade: draft.grade,
       score: draft.score,
       total: draft.total,
-      subject: draft.subject
+      deduction: draft.deduction,
+      subject: draft.subject,
+      agentSummary: draft.agentSummary,
+      agentSuggestions: draft.agentSuggestions
     }, draftMarks());
   }
 
   function conclusionCard() {
     var summary = examSummary();
     if (!summary || !summary.text) return '';
-    return '<section class="card"><h2>' + esc(summary.title || '综评结论') + '</h2><p id="pq-conclusion" class="pq-conclusion">' + esc(summary.text) + '</p></section>';
+    var tag = summary.source === 'agent' ? 'Agent 分析' : '本机按录入信息生成';
+    return '<section class="card"><h2>' + esc(summary.title || '综评结论') +
+      ' <span class="small muted">· ' + esc(tag) + '</span></h2>' +
+      '<p id="pq-conclusion" class="pq-conclusion">' + esc(summary.text) + '</p></section>';
   }
 
   function refreshConclusion() {
@@ -518,6 +545,223 @@
     if (!el) return;
     var summary = examSummary();
     el.textContent = summary && summary.text || '';
+  }
+
+  /* ===== Agent 交接界面 =====
+   * 主链路：导出请求包/提示词 → 交给 Agent 读照片 → 导入结果 JSON。
+   * 可选链路：用户自己配置视觉模型，显式确认后把照片发过去。两条都不改动本机数据库结构。 */
+  var SUBJECT_PREFIX = {
+    math: 'cnm_', chinese: 'cnc_', english: 'cne_', physics: 'cnp_', science: 'cns_',
+    morality: 'cnd_', history: 'cnh_', geography: 'cng_', biology: 'cnb_', chemistry: 'cnk_'
+  };
+
+  function setAgentMsg(text) {
+    var el = document.getElementById('pa-msg');
+    if (el) el.textContent = text;
+  }
+
+  function knowledgeCatalog() {
+    var subject = draft ? draft.subject : 'math';
+    knowledgeCache = knowledgeCache || {};
+    if (knowledgeCache[subject]) return Promise.resolve(knowledgeCache[subject]);
+    if (typeof fetch !== 'function') { knowledgeCache[subject] = []; return Promise.resolve([]); }
+    var prefix = SUBJECT_PREFIX[subject] || '';
+    return fetch('../data/topics.json').then(function (r) {
+      return r && r.ok ? r.json() : [];
+    }).then(function (list) {
+      var names = [], seen = Object.create(null);
+      (Array.isArray(list) ? list : []).forEach(function (topic) {
+        if (!topic || !topic.name) return;
+        if (prefix && String(topic.id || '').indexOf(prefix) !== 0) return;
+        if (seen[topic.name]) return;
+        seen[topic.name] = 1;
+        names.push(String(topic.name));
+      });
+      knowledgeCache[subject] = names.slice(0, 300);
+      return knowledgeCache[subject];
+    }).catch(function () {
+      knowledgeCache[subject] = [];
+      return [];
+    });
+  }
+
+  function buildRequest(includeImages) {
+    return knowledgeCatalog().then(function (catalog) {
+      var jobs = draft.pages.map(function (page) {
+        if (!includeImages || !page.blob) return Promise.resolve(null);
+        return PQ.blobToDataUrl(page.blob).catch(function () { return null; });
+      });
+      return Promise.all(jobs).then(function (images) {
+        return PQ.buildAgentRequest({
+          paper: {
+            title: draft.title, grade: draft.grade, subject: draft.subject,
+            examDate: draft.examDate, score: draft.score, total: draft.total,
+            deduction: draft.deduction, headerHint: draft.headerHint
+          },
+          pages: draft.pages.map(function (page, i) {
+            return {
+              id: page.id, width: page.width, height: page.height,
+              sourceName: page.sourceName, marks: page.marks,
+              imageDataUrl: images[i] || null
+            };
+          })
+        }, { includeImages: !!includeImages, knowledgeCatalog: catalog });
+      });
+    });
+  }
+
+  function downloadJson(name, obj) {
+    var blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+  }
+
+  function downloadRequest() {
+    if (!draft || !draft.pages.length) return;
+    setAgentMsg('正在打包请求……');
+    buildRequest(agentIncludeImages).then(function (request) {
+      var name = '试卷分析请求_' + String(draft.title || '未命名').replace(/[\\/:*?"<>|]/g, '_') + '_' + today() + '.json';
+      downloadJson(name, request);
+      var photos = request.pages.filter(function (p) { return !!p.image; }).length;
+      setAgentMsg('已下载请求包：' + request.pages.length + ' 页、' +
+        (agentIncludeImages ? '附带 ' + photos + ' 张照片' : '不含照片，请把照片一起交给 Agent') + '。');
+    }).catch(function (err) {
+      setAgentMsg('打包失败：' + (err && err.message || err));
+    });
+  }
+
+  function copyPrompt() {
+    if (!draft || !draft.pages.length) return;
+    buildRequest(false).then(function (request) {
+      var text = request.instructions;
+      function fallback() {
+        var box = document.getElementById('pa-prompt-box');
+        if (box) {
+          box.hidden = false;
+          box.value = text;
+          box.focus();
+          box.select();
+        }
+        setAgentMsg('浏览器不允许自动复制，提示词已放在下面的框里，请手动复制。');
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () {
+          setAgentMsg('提示词已复制。把试卷照片和这段提示词一起交给 Agent，再把结果 JSON 导入。');
+        }, fallback);
+      } else fallback();
+    }).catch(function (err) {
+      setAgentMsg('生成提示词失败：' + (err && err.message || err));
+    });
+  }
+
+  function importText(text) {
+    if (!draft) return;
+    try {
+      var out = PQ.applyAgentResult(draft, text, { overwrite: agentOverwrite });
+      draft = out.bundle;
+      dirty = true;
+      paintEdit();
+      var msg = '已导入：更新 ' + out.applied.updated + ' 道、新增 ' + out.applied.created +
+        ' 道、卷头字段 ' + out.applied.paperFields + ' 处' +
+        (out.applied.pruned ? '，清掉 ' + out.applied.pruned + ' 个没对上的自动标记' : '') + '。综评已按结果刷新。';
+      if (out.warnings.length) msg += ' 提醒：' + out.warnings.slice(0, 3).join('；');
+      setAgentMsg(msg);
+    } catch (err) {
+      setAgentMsg('导入失败：' + (err && err.message || err));
+    }
+  }
+
+  function importResult(file) {
+    if (!file || !draft) return;
+    var reader = new FileReader();
+    reader.onerror = function () { setAgentMsg('这个文件读不出来。'); };
+    reader.onload = function () { importText(String(reader.result || '')); };
+    reader.readAsText(file);
+  }
+
+  function runDirect() {
+    if (!PA) { setAgentMsg('这个页面没有加载模型模块。请用导入结果的方式。'); return; }
+    if (!draft || !draft.pages.length) return;
+    var cfg = PA.loadConfig();
+    if (!cfg.enabled) {
+      agentSettingsOpen = true;
+      paintEdit();
+      setAgentMsg('请先在「模型设置」里打开开关，填好服务地址和模型名，再点「用模型直接分析」。');
+      return;
+    }
+    if (!confirm('这会把 ' + draft.pages.length + ' 页试卷照片发送到你填写的模型服务：\n' +
+      cfg.endpoint + '\n\n照片会离开这台设备。确认继续？')) return;
+    setAgentMsg('正在把照片发给你配置的模型……');
+    buildRequest(true).then(function (request) {
+      return PA.analyze(request, cfg);
+    }).then(function (out) {
+      var merged = PQ.applyAgentResult(draft, out.result, { overwrite: agentOverwrite });
+      draft = merged.bundle;
+      dirty = true;
+      paintEdit();
+      setAgentMsg('模型分析完成：更新 ' + merged.applied.updated + ' 道、新增 ' + merged.applied.created + ' 道' +
+        (merged.applied.pruned ? '，清掉 ' + merged.applied.pruned + ' 个没对上的自动标记' : '') + '。');
+    }).catch(function (err) {
+      setAgentMsg('模型分析失败：' + (err && err.message || err) + '。也可以导出请求包交给 Agent。');
+    });
+  }
+
+  function saveAgentSettings() {
+    if (!PA) return;
+    var val = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    var checked = function (id) { var el = document.getElementById(id); return !!(el && el.checked); };
+    PA.saveConfig({
+      enabled: checked('pa-enabled'),
+      endpoint: val('pa-endpoint'),
+      model: val('pa-model'),
+      apiKey: val('pa-key'),
+      timeoutMs: Number(val('pa-timeout')) || 90000,
+      jsonMode: checked('pa-json-mode')
+    });
+    paintEdit();
+    setAgentMsg('设置已保存在这台浏览器。' + (checked('pa-enabled') ? '开关已打开，点「用模型直接分析」时会再次确认。' : '开关关闭时不会发送任何照片。'));
+  }
+
+  function agentCard() {
+    if (!draft) return '';
+    var cfg = PA ? PA.loadConfig() : null;
+    var ready = draft.pages.length ? '' : ' disabled';
+    var html = '<section class="card" id="pa-card">';
+    html += '<h2>Agent 分析试卷</h2>';
+    html += '<p class="muted">本机只认红笔和题目区域。把请求包交给 Agent（例如 WorkBuddy）读照片，再把结果 JSON 导入；也可以自己配置视觉模型直接分析。照片默认不离开这台设备。</p>';
+    html += '<div class="row"><button type="button" id="pa-copy"' + ready + '>复制分析提示词</button>';
+    html += '<button type="button" id="pa-download"' + ready + '>下载请求包</button>';
+    html += '<label class="btn">导入 Agent 结果<input id="pa-result" class="pq-file" type="file" accept=".json,application/json"></label></div>';
+    html += '<p class="small"><label><input type="checkbox" id="pa-include-images"' + (agentIncludeImages ? ' checked' : '') + '> 请求包附带照片（文件会变大，交给 Agent 前请自行确认）</label></p>';
+    html += '<p class="small"><label><input type="checkbox" id="pa-overwrite"' + (agentOverwrite ? ' checked' : '') + '> 导入时覆盖已经填好的内容</label></p>';
+    html += '<textarea id="pa-prompt-box" class="pa-prompt" rows="8" readonly hidden></textarea>';
+    html += '<p class="small"><label for="pa-paste">也可以直接把 Agent 回复的 JSON 粘在这里：</label></p>';
+    html += '<textarea id="pa-paste" class="pa-prompt" rows="5" placeholder="粘贴 JSON 后点「粘贴结果并导入」"></textarea>';
+    html += '<p><button type="button" id="pa-paste-apply">粘贴结果并导入</button></p>';
+    html += '<p id="pa-msg" class="small" role="status"></p>';
+    html += '<div class="row"><button type="button" id="pa-toggle">' + (agentSettingsOpen ? '收起模型设置' : '模型设置') + '</button>';
+    html += '<button type="button" id="pa-analyze"' + ready + '>用模型直接分析</button>';
+    html += '<button type="button" id="pa-clear-summary"' + (draft.agentSummary ? '' : ' disabled') + '>清除 Agent 综评</button></div>';
+    if (agentSettingsOpen) {
+      html += '<div class="pq-form pa-settings">';
+      html += '<p class="small muted">填一个兼容 OpenAI chat/completions 的视觉模型服务。地址和密钥只存在这台浏览器；开关关闭时不会发送任何照片。</p>';
+      html += '<p class="small"><label><input type="checkbox" id="pa-enabled"' + (cfg && cfg.enabled ? ' checked' : '') + '> 允许把照片发给我填写的模型服务</label></p>';
+      html += field('服务地址', '<input id="pa-endpoint" type="text" value="' + esc(cfg && cfg.endpoint) + '" placeholder="https://…/v1">');
+      html += field('模型名称', '<input id="pa-model" type="text" value="' + esc(cfg && cfg.model) + '" placeholder="例如 gpt-4o">');
+      html += field('密钥（可选）', '<input id="pa-key" type="password" value="' + esc(cfg && cfg.apiKey) + '" autocomplete="off">');
+      html += field('超时（毫秒）', '<input id="pa-timeout" type="number" min="10000" step="1000" value="' + esc(cfg && cfg.timeoutMs) + '">');
+      html += '<p class="small"><label><input type="checkbox" id="pa-json-mode"' + (cfg && cfg.jsonMode ? ' checked' : '') + '> 服务支持 response_format=json_object</label></p>';
+      html += '<button type="button" id="pa-save-config">保存设置</button>';
+      html += '</div>';
+    }
+    html += '</section>';
+    return html;
   }
 
   function zoomOf(key) {
@@ -559,6 +803,8 @@
       mark.studentAnswer = q.studentAnswer || '';
       mark.rightAnswer = q.correction || '';
       mark.kind = q.kind || '';
+      mark.numberConfident = q.numberConfident === true;
+      mark.source = q.source || 'offline';
       return mark;
     });
     marks.sheet = found.sheet || null;
@@ -567,6 +813,7 @@
 
   function applySheet(sheet) {
     if (!sheet || !draft) return;
+    if (sheet.headerNumber) draft.headerHint = String(sheet.headerNumber);
     if (!String(draft.title || '').trim() && sheet.title) draft.title = sheet.title;
     if (!String(draft.grade || '').trim() && sheet.grade) draft.grade = sheet.grade;
     if (String(draft.score == null ? '' : draft.score).trim() === '' && sheet.score) draft.score = sheet.score;
@@ -753,7 +1000,7 @@
       var n = draft.pages.reduce(function (sum, page) {
         return sum + page.marks.filter(function (mark) { return mark.auto; }).length;
       }, 0);
-      setMsg('自动分析完成，现在有 ' + n + ' 道自动识别的错题。已经填过知识点或答案的保留着。');
+      setMsg('自动标出 ' + n + ' 个红笔区域，仅供参考：题号、框和是否算错题都可能不准，请逐条核对，或用 Agent 分析照片。已经填过知识点或答案的保留着。');
     }).catch(function (err) {
       setMsg((err && err.message) || '自动分析没有完成。');
     });
@@ -798,6 +1045,9 @@
       examDate: draft.examDate,
       score: draft.score,
       total: draft.total,
+      deduction: draft.deduction || '',
+      agentSummary: draft.agentSummary || '',
+      agentSuggestions: Array.isArray(draft.agentSuggestions) ? draft.agentSuggestions : [],
       childId: draft.childId,
       childName: draft.childName,
       createdAt: draft.createdAt || new Date().toISOString()
@@ -827,6 +1077,9 @@
           paperId: paper.id,
           pageId: page.id,
           x: mark.x, y: mark.y, w: mark.w, h: mark.h, auto: !!mark.auto,
+          kind: String(mark.kind || '').trim(),
+          numberConfident: mark.numberConfident === true,
+          source: String(mark.source || '').trim(),
           number: number,
           prompt: prompt,
           knowledge: knowledge,
@@ -1035,6 +1288,28 @@
       return;
     }
     if (!draft) return;
+    var agentBtn = e.target.closest('button[id^="pa-"]');
+    if (agentBtn) {
+      var agentId = agentBtn.id;
+      if (agentId === 'pa-copy') copyPrompt();
+      else if (agentId === 'pa-download') downloadRequest();
+      else if (agentId === 'pa-analyze') runDirect();
+      else if (agentId === 'pa-paste-apply') {
+        var box = document.getElementById('pa-paste');
+        if (box && String(box.value).trim()) importText(String(box.value));
+        else setAgentMsg('请先把 Agent 回复的 JSON 粘到框里。');
+      }
+      else if (agentId === 'pa-toggle') { agentSettingsOpen = !agentSettingsOpen; paintEdit(); }
+      else if (agentId === 'pa-save-config') saveAgentSettings();
+      else if (agentId === 'pa-clear-summary') {
+        draft.agentSummary = '';
+        draft.agentSuggestions = [];
+        dirty = true;
+        paintEdit();
+        setAgentMsg('已清除 Agent 综评，恢复按录入信息生成。');
+      }
+      return;
+    }
     if (e.target.closest('#pq-save')) { saveDraft(); return; }
     if (e.target.closest('#pq-rescan')) { rescan(); return; }
     var delPage = e.target.closest('[data-del-page]');
@@ -1152,11 +1427,21 @@
       return;
     }
     if (!draft) return;
+    if (e.target.id === 'pa-result') {
+      importResult(e.target.files && e.target.files[0]);
+      e.target.value = '';
+      return;
+    }
+    if (e.target.id === 'pa-include-images') { agentIncludeImages = e.target.checked; return; }
+    if (e.target.id === 'pa-overwrite') { agentOverwrite = e.target.checked; return; }
+    if (e.target.id && e.target.id.indexOf('pa-') === 0) return;
     var bind = e.target.getAttribute('data-bind');
     if (!bind) {
       if (e.target.id && e.target.id.indexOf('pq-') === 0) {
         if (e.target.id === 'pq-total') draft.totalEdited = true;
         if (e.target.id === 'pq-score') draft.scoreEdited = true;
+        if (e.target.id === 'pq-grade') draft.gradeEdited = true;
+        if (e.target.id === 'pq-subject') draft.subjectEdited = true;
         readMeta();
         dirty = true;
         refreshConclusion();
@@ -1182,6 +1467,8 @@
     if (e.target.id && e.target.id.indexOf('pq-') === 0) {
       if (e.target.id === 'pq-total') draft.totalEdited = true;
       if (e.target.id === 'pq-score') draft.scoreEdited = true;
+      if (e.target.id === 'pq-grade') draft.gradeEdited = true;
+      if (e.target.id === 'pq-subject') draft.subjectEdited = true;
       readMeta(); dirty = true; refreshConclusion();
     }
   });

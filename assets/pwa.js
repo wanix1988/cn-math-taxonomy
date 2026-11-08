@@ -4,6 +4,36 @@
  * 用户关闭提示后写入 localStorage，不再自动弹出；已经是 standalone（从桌面图标打开）时不显示。 */
 (function () {
   'use strict';
+
+  function closeNavDrops() {
+    document.querySelectorAll('.nav-drop.open').forEach(function (drop) {
+      drop.classList.remove('open');
+      var btn = drop.querySelector('.nav-drop-btn');
+      var menu = drop.querySelector('.nav-menu');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+      if (menu) menu.hidden = true;
+    });
+  }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.nav-drop-btn');
+    if (btn) {
+      var drop = btn.closest('.nav-drop');
+      var menu = drop && drop.querySelector('.nav-menu');
+      var open = !drop.classList.contains('open');
+      closeNavDrops();
+      if (open && drop) {
+        drop.classList.add('open');
+        btn.setAttribute('aria-expanded', 'true');
+        if (menu) menu.hidden = false;
+      }
+      return;
+    }
+    if (!e.target.closest || !e.target.closest('.nav-menu')) closeNavDrops();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeNavDrops();
+  });
+
   var DISMISS_KEY = 'cnmPwa.dismissed.v1';
   var INSTALLED_KEY = 'cnmPwa.installed.v1';
   var script = document.currentScript;

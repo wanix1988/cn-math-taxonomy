@@ -42,8 +42,12 @@
       <a class="nav-link" href="../">首页</a>
       <a class="nav-link back" href="../explore/">知识图谱</a>
       <div class="nav-drop">
-        <a class="nav-link" href="./">诊断</a>
-        <a class="nav-link nav-sub active" href="papers.html" aria-current="page">试卷质量分析</a>
+        <button type="button" class="nav-link nav-drop-btn active" aria-expanded="false" aria-haspopup="menu" aria-controls="nav-diagnose-menu">诊断</button>
+        <div class="nav-menu" id="nav-diagnose-menu" hidden>
+          <a class="nav-link" href="./">诊断</a>
+          <a class="nav-link active" href="papers.html" aria-current="page">试卷质量分析</a>
+          <a class="nav-link" href="writing.html">书写质量</a>
+        </div>
       </div>
       <a class="nav-link" href="../children/">档案</a>
       <a class="nav-link" href="https://github.com/xiaoyang111222/cn-math-taxonomy" target="_blank" rel="noopener noreferrer">关于</a>
@@ -52,11 +56,12 @@
 </header>
 <main id="root"><p class="loading">正在打开试卷质量分析……</p></main>
 <footer class="site-footer">
-  <p>错题、表单和原始试卷照片只写在这台浏览器的数据库里，不会放进当前项目。<a href="https://github.com/xiaoyang111222/cn-math-taxonomy/issues/new/choose">提交 Issue</a></p>
+  <p>错题、表单和原始试卷照片只写在这台浏览器的数据库里，不会放进当前项目。请求包默认不含照片；只有在「模型设置」里显式开启并确认后，照片才会发给你自己填写的模型服务。<a href="https://github.com/xiaoyang111222/cn-math-taxonomy/issues/new/choose">提交 Issue</a></p>
 </footer>
 <script src="../assets/children.js"></script>
-<script src="../assets/paper-quality.js?v=52"></script>
-<script src="papers.js?v=52"></script>
+<script src="../assets/paper-quality.js"></script>
+<script src="../assets/paper-agent.js"></script>
+<script src="papers.js"></script>
 <script src="../assets/pwa.js"></script>
 </body>
 </html>

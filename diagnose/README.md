@@ -144,3 +144,74 @@ node scripts/screenshot.js     # 需要本机 Chrome/Chromium（可用 CHROME=�
 - 路径图由 dagre 排版。跨很多层时边可能从别的节点旁边穿过；名称在图上会省略，完整顺序以文字列表为准。
 - 进度只存在当前浏览器的 localStorage，换浏览器或清除数据就没了；隐私模式下可能无法保存。
 - 手机上可以使用：开始页以搜索为主，选项和主要按钮不小于 44px，窄屏不会横向撑出页面。无障碍（键盘 / 读屏）只做了基本的语义标签。
+
+## 试卷质量分析与 Agent 交接协议
+
+`papers.html` 的离线算法（`assets/paper-quality.js`）只做**通用几何**：红笔连通块、分栏、题目带、印刷题号、旋转方向、去重，以及基于录入字段的统计与综评。它不再为任何一份具体试卷保存笔迹模板、固定题号、答案或写死的讲评文字。
+
+读懂题目文字、手写订正、知识点归因和针对性讲评需要语义理解，因此交给 Agent，有两条通道：
+
+1. **主链路（默认）**：导入页的「Agent 分析试卷」卡片里复制提示词或下载请求包 → 把照片一并交给 Agent（例如 WorkBuddy）→ 把 Agent 回复直接粘进「粘贴结果并导入」，或保存成 `.json` 用「导入 Agent 结果」导入。请求包默认**不含照片**；勾选「请求包附带照片」才把图片转成 data URL 写进包里。
+2. **可选直连**：在「模型设置」里填一个兼容 OpenAI `chat/completions` 的视觉模型服务（地址、模型名、可选密钥），打开开关后点「用模型直接分析」。开关默认关闭，且每次发送前都会再次确认；配置只存在本机 `cnmPaperAgent.v1`。
+
+### 请求包（导出给 Agent）
+
+`PQ.buildAgentRequest()` 生成：
+
+```
+schemaVersion, kind: "paper-analysis-request", createdAt,
+paper: { title, grade, subject, examDate, score, total, deduction, headerHint },
+pages: [{ index, id, width, height, imageName, image: dataURL|null,
+          candidates: [{ number, kind, prompt, numberConfident, box: {x,y,w,h} }] }],
+catalog: { subjects, reasons, knowledgeHints },   // knowledgeHints 来自本地 topics.json
+outputSchema, instructions                        // instructions 是完整提示词
+```
+
+`box` 是相对**整张照片**宽高的 0～1 归一化坐标，候选框和题号都可能不准，以照片为准。`headerHint` 是离线在卷头读到的大号数字，可能是得分也可能是扣分，只作线索。
+
+`instructions` 本身自带候选框清单、坐标说明和「照片必须随请求提供」的约束，可以脱离请求包单独复制给 Agent。一张照片可能拍到跨页的两页试卷，`pages[].index` 与**照片序号**一致，Agent 应按照片分组返回 `items`，不要按印刷页码另拆页；同一大题的不同小题允许重复题号分别列出。
+
+### 结果 JSON（Agent 导入）
+
+只输出一个 JSON 对象，不要 Markdown 代码块之外的解释文字：
+
+```json
+{
+  "schemaVersion": 1,
+  "kind": "paper-analysis-result",
+  "paper": {
+    "title": "七年级期中数学", "grade": "七上", "subject": "math",
+    "score": 88, "total": 100, "deduction": 12,
+    "summary": "综评正文，2～5 段，用换行分隔。",
+    "suggestions": ["先补一次函数", "再做两道变式"]
+  },
+  "pages": [{
+    "index": 0,
+    "items": [{
+      "number": "12", "prompt": "题目原文", "studentAnswer": "B",
+      "rightAnswer": "C", "knowledge": "一次函数", "reason": "概念不清",
+      "reasonNote": "把 k 当成截距", "kind": "圈出",
+      "x": 0.12, "y": 0.24, "w": 0.3, "h": 0.08, "confidence": 0.9
+    }]
+  }]
+}
+```
+
+`reason` 必须是 `概念不清 / 计算失误 / 审题不清 / 步骤不完整 / 记忆不牢 / 时间不够 / 其他` 之一或留空；`correction` 等价于 `rightAnswer`；`match` 可写 `number` / `box` / `new`。读不清的字段留空，不要编造。
+
+### 合并规则
+
+`PQ.applyAgentResult()` 的对齐顺序：
+
+1. 先按**框重叠**（IoU ≥ 0.4）匹配；离线偶尔会把一条红线画成巨大的框，面积超过 Agent 框 4 倍的候选不参与匹配，避免小题被吞掉。
+2. 再按**同页题号**匹配，但题号相同而位置相差太远时不合并（离线题号常认错），改为新建。Agent 没给 box 时仍按题号合并；显式 `match:"number"` 可强制按题号合并，`match:"new"` 强制新建，`match:"box"` 只按框对齐。
+3. 都匹配不上就新建错题，用 Agent 给的 box；合并进离线候选时也会把框换成 Agent 的位置。`match:"new"` 只表示**不与离线候选合并**，重复导入同一份结果时，同页同题号同题目的 Agent 条目仍会复用，不会每次多出一批。
+4. 导入结束后**清掉没被 Agent 认领的「自动标出」占位候选**（人工补过知识点、答案或错因的保留），避免错误题号混进错题清单；`{ keepOffline: true }` 可关闭这个清理。
+
+默认只填空字段，不覆盖人工已录入的内容（离线占位文本「自动标出：…」和跟着算出来的题号视为空）；勾选「导入时覆盖已经填好的内容」才强制覆盖。草稿里预填的满分 100、年级（来自孩子档案）、学科（来自网址默认值）都不是人工录入，Agent 读到别的卷面信息时可以改正；用户真正动过这些字段后（`*_Edited`）就不再覆盖。重复导入同一结果不会新增错题。Agent 结果里的 `paper.summary` 会写入草稿的 `agentSummary`，综评优先采用它并标注来源，可点「清除 Agent 综评」回到本机生成；这些字段会随试卷一起存进本机数据库。
+
+### 实测记录
+
+用一份五年级上册阶段巩固卷（4 页、2 张横拍跨页照片，得分 83）做过端到端验证：离线几何只在每张照片上标出 3 个红笔区域且题号多数不准，属于**候选层**的已知边界；Agent 按提示词读照片给出 10 道错题后，合并结果为 10 条、题号与框全部来自 Agent，4 个误判占位候选被清掉，重复导入幂等，综评采用 Agent 文本。结论：**离线只宜做粗定位，语义与最终错题清单以 Agent 为准**；页面里的「重新自动分析」提示语也据此改成仅供参考。
+
+相关测试：`node tests/test_paper_quality.js`（含协议、页面渲染、真实卷暴露的空间误合并与占位清理用例、直连模块的模拟请求）。

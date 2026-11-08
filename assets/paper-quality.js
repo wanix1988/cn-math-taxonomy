@@ -1,6 +1,8 @@
 /* 试卷质量分析：错题、表单和原始试卷照片存在本机 IndexedDB（库名 cnmPaperQuality）。
  * 这些是个人数据，不写入本仓库；以后若放到 GitHub，使用单独的仓库。
- * 质量分析和红笔候选是纯函数，浏览器与 Node 共用。window.CnmPapers。 */
+ * 离线只做通用几何（红笔、分栏、题目带、印刷题号、去重）与结构化统计；
+ * 题目文字、手写订正、知识点归因和综评通过 Agent 交接协议导入，不针对具体试卷写模板。
+ * 质量分析、Agent 协议和红笔候选都是纯函数，浏览器与 Node 共用。window.CnmPapers。 */
 (function (root, factory) {
   var api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -748,123 +750,8 @@
     return 0;
   }
 
-  /* 错题旁边的订正和原因。认得出才填，认不出就留空，交给手工补录。 */
-  var NOTE_PATTERNS = [
-    {
-      bits: '111011101000000101101100111011101100010110101111100111111000010110101111000111111000010110100110000111111111011100100000000011111111000000000000000111111111000000000000000011011111000000000000',
-      number: '1',
-      correction: 'D',
-      reasonNote: '计算错误',
-      reason: '计算失误',
-      prompt: '一本书有198页，每页约31行字，平均每行约39个，这本书大约有（ ）字。\nA. 18000    B. 24000    C. 180000    D. 240000',
-      knowledge: '乘法估算',
-      studentAnswer: 'C.180000'
-    },
-    {
-      bits: '000000000000000111111111000000101011111101111111000000110011110101111101000001010011010001011111000000110011111001010111000000101011110101110111000101111000110001010110100101110001110001011111',
-      number: '6',
-      correction: 'B',
-      reasonNote: '计算错误',
-      reason: '计算失误',
-      prompt: '下面计算过程正确的有（ ）个。\n①26×57+43×26=26×(57+43)\n②35×(100+1)=35×100+1×\n③125×(8×4)=125×8×4\n④64×12=64×10×2\nA. 1    B. 2    C. 3    D. 4',
-      knowledge: '乘法运算律',
-      studentAnswer: 'C.3'
-    },
-    {
-      bits: '000100111101110100101000110101110110011111001000110001110000011111111000110011110001111111101000010011011101101111101101010001011111101010001111000101010000101010101111000001110000000001001111',
-      number: '8',
-      correction: 'C',
-      reasonNote: '以为可以拼在一起',
-      reason: '概念不清',
-      prompt: '田田在用计算器计算798×66得出结果后，发现乘数66少按了一个“6”，如果她不重新计算，而继续操作计算器，下面（ ）的操作可以得到798×66的正确结果。\nA. +600=    B. ×600=    C. ×10=    D. ×6=',
-      knowledge: '积的变化规律',
-      studentAnswer: 'D.×6='
-    }
-  ];
 
-  /* 认出上面的订正笔迹时，卷头这些也能确定。圈出的 17 是扣分，满分没有另标，按 100 分。 */
-  var KNOWN_SHEET = {
-    title: '四年级数学·乘法与运算律',
-    grade: '四年级',
-    score: '83',
-    total: '100'
-  };
-
-  function noteDark(image, x, y) {
-    if (x < 0 || y < 0 || x >= image.width || y >= image.height) return false;
-    var p = (y * image.width + x) * 4;
-    var r = image.data[p], g = image.data[p + 1], b = image.data[p + 2];
-    if (isPenPixel(r, g, b)) return false;
-    return (r * 3 + g * 6 + b) / 10 < 108;
-  }
-
-  function noteBits(image, box) {
-    var x0 = box.x + Math.round(box.w * 0.35);
-    var y0 = Math.max(0, box.y - Math.round(Math.max(10, box.h * 0.5)));
-    var x1 = Math.min(image.width, box.x + box.w + Math.round(image.width * 0.24));
-    var y1 = Math.min(image.height, box.y + box.h + 10);
-    var rowCount = [];
-    var y, x, c;
-    for (y = y0; y < y1; y++) {
-      c = 0;
-      for (x = x0; x < x1; x++) if (noteDark(image, x, y)) c++;
-      rowCount[y] = c;
-    }
-    var peak = 0, peakY = y0;
-    for (y = y0; y < y1; y++) if (rowCount[y] > peak) { peak = rowCount[y]; peakY = y; }
-    if (peak < 8) return '';
-    var minY = peakY, maxY = peakY, ink = peak;
-    var floor = Math.max(4, peak * 0.35);
-    for (y = peakY - 1; y >= y0 && rowCount[y] >= floor; y--) { minY = y; ink += rowCount[y]; }
-    for (y = peakY + 1; y < y1 && rowCount[y] >= floor; y++) { maxY = y; ink += rowCount[y]; }
-    if (maxY - minY < 6 || ink < 80) return '';
-    var minX = x1, maxX = x0;
-    for (y = minY; y <= maxY; y++) {
-      for (x = x0; x < x1; x++) if (noteDark(image, x, y)) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-      }
-    }
-    if (maxX - minX < 24) return '';
-    var cols = 24, rows = 8, bits = '';
-    var j, i, xx, yy, on, xA, xB, yA, yB;
-    for (j = 0; j < rows; j++) {
-      for (i = 0; i < cols; i++) {
-        xA = minX + Math.floor(i * (maxX - minX + 1) / cols);
-        xB = minX + Math.floor((i + 1) * (maxX - minX + 1) / cols);
-        yA = minY + Math.floor(j * (maxY - minY + 1) / rows);
-        yB = minY + Math.floor((j + 1) * (maxY - minY + 1) / rows);
-        on = 0;
-        for (yy = yA; yy < yB; yy++) for (xx = xA; xx < xB; xx++) if (noteDark(image, xx, yy)) on++;
-        bits += on ? '1' : '0';
-      }
-    }
-    return bits;
-  }
-
-  function readNote(image, box) {
-    var empty = { number: '', correction: '', reasonNote: '', reason: '', prompt: '', knowledge: '', studentAnswer: '' };
-    var bits = noteBits(image, box);
-    if (!bits) return empty;
-    var best = null, bestD = 49, i, d, k;
-    for (i = 0; i < NOTE_PATTERNS.length; i++) {
-      d = 0;
-      for (k = 0; k < bits.length; k++) if (bits[k] !== NOTE_PATTERNS[i].bits[k]) d++;
-      if (d < bestD) { bestD = d; best = NOTE_PATTERNS[i]; }
-    }
-    if (!best) return empty;
-    return {
-      number: best.number || '',
-      correction: best.correction,
-      reasonNote: best.reasonNote,
-      reason: best.reason,
-      prompt: best.prompt || '',
-      knowledge: best.knowledge || '',
-      studentAnswer: best.studentAnswer || ''
-    };
-  }
-
-  /* 判定和订正笔迹是按约 1024 宽校准的。更宽的照片先缩到这个宽度，框再映射回原图。 */
+  /* 通用像素阈值按约 1024 宽校准。更宽的照片先缩到这个宽度，框再映射回原图。 */
   function fitForAnalysis(image) {
     var maxW = 1024;
     if (!image || !image.width || !image.height || !image.data || image.width <= maxW) return image;
@@ -909,527 +796,8 @@
     return n > 0 ? n : 1000;
   }
 
-  /* 这页已经认出订正笔迹时，剩下的圈按左右栏补上同一套题号，没有订正的零碎红笔去掉。 */
-  function settleKnownNotes(image, questions) {
-    var known = questions.filter(function (q) {
-      return q.correction && (q.number === '1' || q.number === '6' || q.number === '8') &&
-        (q.knowledge === '乘法估算' || q.knowledge === '乘法运算律' || q.knowledge === '积的变化规律');
-    });
-    if (known.length < 2) return questions;
-    var pending = questions.filter(function (q) { return !q.correction && q.kind === '圈出'; });
-    pending.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
-    pending.forEach(function (q) {
-      var taken = {};
-      questions.forEach(function (item) { if (item.correction) taken[item.number] = 1; });
-      var onRight = q.x + q.w / 2 > image.width * 0.48;
-      var pattern = null;
-      if (!onRight) {
-        if (!taken['1']) pattern = NOTE_PATTERNS[0];
-      } else if (q.y < image.height * 0.16) {
-        if (!taken['6']) pattern = NOTE_PATTERNS[1];
-      } else if (!taken['8']) pattern = NOTE_PATTERNS[2];
-      if (!pattern) return;
-      q.number = pattern.number;
-      q.correction = pattern.correction;
-      q.reasonNote = pattern.reasonNote;
-      q.reason = pattern.reason;
-      q.prompt = pattern.prompt || ('自动标出：第' + pattern.number + '题，' + q.kind);
-      q.knowledge = pattern.knowledge || '';
-      q.studentAnswer = pattern.studentAnswer || '';
-    });
-    return questions.filter(function (q) { return q.correction; });
-  }
 
-  /* 阶段巩固这张卷。只在已经认出的题号对得上时填写，避免套到别的试卷。 */
-  var STAGE_TITLE = '五年级数学（上册）阶段巩固（第一单元～第四单元）';
-  var STAGE_NOTES = {
-    '1': {
-      prompt: '如右图所示，淘气的身高是1.52米，妙想的身高是1.45米。笑笑的身高可能是（ ）米。\nA. 1.40    B. 1.45    C. 1.48    D. 1.52',
-      correction: 'C.1.48',
-      reasonNote: '因比较错误',
-      reason: '概念不清',
-      knowledge: '小数的大小',
-      studentAnswer: 'B.1.45'
-    },
-    '12': {
-      prompt: '在○里填上“>”“<”或“=”。\n0.25元 ○ 25分',
-      correction: '=',
-      reasonNote: '因换算错误',
-      reason: '概念不清',
-      knowledge: '单位换算',
-      studentAnswer: '>'
-    },
-    '13': {
-      prompt: '珠穆朗玛峰岩面高约8844.43米，最新雪面高约8848.86米。横线上的两个数都是（ ）位小数，计数单位是（ ）。珠穆朗玛峰上的雪大约厚（ ）米。',
-      correction: '4.43米',
-      reasonNote: '因没有用减法',
-      reason: '审题不清',
-      knowledge: '小数减法',
-      studentAnswer: '8849米'
-    },
-    '15': {
-      prompt: '不计算，根据规律填符号和数。\n52-8=44，52-8+5=44+5，52-8-7=44-7，52-8×3=44×3',
-      correction: '52-8×3=44×3',
-      reasonNote: '因没有规律',
-      reason: '概念不清',
-      knowledge: '运算规律',
-      studentAnswer: '最后一行符号填错'
-    },
-    '19': {
-      prompt: '画一画，再计算。\n1÷25＝\n0.06×12＝',
-      correction: '0.04；0.72',
-      reasonNote: '计算错误',
-      reason: '计算失误',
-      knowledge: '小数乘除',
-      studentAnswer: '两道算式得数不对'
-    },
-    '22': {
-      prompt: '晴晴家装修房子，需要将下图中的区域用瓷砖铺满。在图中画出铺法（不切割瓷砖）。我用（ ）号瓷砖铺，共用了（ ）块。',
-      correction: '6块',
-      reasonNote: '因想法错误',
-      reason: '概念不清',
-      knowledge: '图形密铺',
-      studentAnswer: '③号，13块'
-    },
-    '23': {
-      prompt: '根据右图信息，解决问题。\n（2）买2本《数学动物园》和1本《数学王国历险记》，一共需要多少元？',
-      correction: '47.2元',
-      reasonNote: '因计算错误',
-      reason: '计算失误',
-      knowledge: '小数运算',
-      studentAnswer: '46.2元'
-    },
-    '24': {
-      prompt: '认真观察下面各图形，发现规律并回答问题。\n（2）n边形的内角和是（ ）。\n（3）如果一个多边形的内角和是1800°，那么这是一个（ ）边形。',
-      correction: '（2）(n-2)×180；（3）12',
-      reasonNote: '内角和少算了边数',
-      reason: '概念不清',
-      knowledge: '多边形内角和',
-      studentAnswer: '（2）180×n；（3）10'
-    }
-  };
 
-  function numbersPresent(listed, nums) {
-    var seen = Object.create(null);
-    listed.forEach(function (q) { seen[String(q.number)] = 1; });
-    var i;
-    for (i = 0; i < nums.length; i++) if (!seen[nums[i]]) return false;
-    return true;
-  }
-
-  function fillStageNote(q) {
-    var note = STAGE_NOTES[String(q.number)];
-    if (!note) return;
-    q.prompt = note.prompt;
-    q.correction = note.correction;
-    q.reasonNote = note.reasonNote;
-    q.reason = note.reason;
-    q.knowledge = note.knowledge;
-    q.studentAnswer = note.studentAnswer;
-  }
-
-  function attachStageNotes(image, listed) {
-    var front = numbersPresent(listed, ['1', '12', '13', '15']) && !numbersPresent(listed, ['11', '26']);
-    var back = numbersPresent(listed, ['22', '23', '24']) && !numbersPresent(listed, ['15', '17', '26']);
-    if (back && !numbersPresent(listed, ['19'])) {
-      listed.push({
-        x: Math.round(image.width * 0.04),
-        y: Math.round(image.height * 0.38),
-        w: Math.round(image.width * 0.42),
-        h: Math.round(image.height * 0.22),
-        number: '19',
-        kind: '批改',
-        prompt: '',
-        correction: '',
-        reasonNote: '',
-        reason: '',
-        knowledge: '',
-        studentAnswer: ''
-      });
-      listed.sort(function (a, b) { return questionRank(a.number) - questionRank(b.number); });
-    }
-    if (!front && !back) return;
-    listed.forEach(fillStageNote);
-    var sheet = listed.sheet || {};
-    if (!sheet.title) sheet.title = STAGE_TITLE;
-    if (!sheet.grade) sheet.grade = '五年级';
-    if (!sheet.total) sheet.total = '100';
-    listed.sheet = sheet;
-  }
-
-  function penNear(pens, x, y, dx, dy, flip, width, height) {
-    var best = null, bestD = Infinity;
-    pens.forEach(function (pen) {
-      var cx = pen.x + pen.w / 2;
-      var cy = pen.y + pen.h / 2;
-      if (flip) { cx = width - cx; cy = height - cy; }
-      if (Math.abs(cx - x) > dx || Math.abs(cy - y) > dy) return;
-      var d = (cx - x) * (cx - x) + (cy - y) * (cy - y);
-      if (d < bestD) { bestD = d; best = pen; }
-    });
-    return best;
-  }
-
-  /* 第一、二单元这张打开的练习。圈出的 25 是扣分。只在卷头标题对得上时使用，避免套到乘法那份。 */
-  var LARGE_NUMBER_SHEET = {
-    title: '四年级数学·大数与线角',
-    grade: '四年级',
-    score: '75',
-    total: '100'
-  };
-  var LARGE_NUMBER_BITS = '000000000000000000000000111001111010000000000000111111111111111111110000000000001111111111110000000000000000000000000000000000000000000000000000100110000001010000000000100010100011111111011110';
-
-  function largeNumberBits(image) {
-    var w = image.width, h = image.height, data = image.data;
-    var x0 = Math.round(w * 230 / 1024);
-    var y0 = Math.round(h * 48 / 744);
-    var cols = 24, rows = 8, cw = Math.max(1, Math.round(w * 8 / 1024)), ch = Math.max(1, Math.round(h * 6 / 744));
-    var bits = '', j, i, yy, xx, p, on, r, g, b, lum;
-    if (y0 + rows * ch > h || x0 + cols * cw > w) return '';
-    for (j = 0; j < rows; j++) {
-      for (i = 0; i < cols; i++) {
-        on = 0;
-        for (yy = y0 + j * ch; yy < y0 + (j + 1) * ch; yy++) {
-          for (xx = x0 + i * cw; xx < x0 + (i + 1) * cw; xx++) {
-            p = (yy * w + xx) * 4;
-            r = data[p]; g = data[p + 1]; b = data[p + 2];
-            if (r >= 102 && r - Math.max(g, b) >= 8 && g < 230 && b < 220) continue;
-            lum = (r * 3 + g * 6 + b) / 10;
-            if (lum < 140) on++;
-          }
-        }
-        bits += on > cw * ch * 0.15 ? '1' : '0';
-      }
-    }
-    return bits;
-  }
-
-  function recognizeLargeNumbers(image) {
-    var w = image.width, h = image.height;
-    if (w < 900 || h < 600) return null;
-    var bits = largeNumberBits(image);
-    if (bits.length !== LARGE_NUMBER_BITS.length) return null;
-    var d = 0, i;
-    for (i = 0; i < bits.length; i++) if (bits[i] !== LARGE_NUMBER_BITS[i]) d++;
-    if (d > 48) return null;
-    var sx = w / 1024, sy = h / 744;
-    function box(x, y, bw, bh) {
-      return {
-        x: Math.round(x * sx), y: Math.round(y * sy),
-        w: Math.max(1, Math.round(bw * sx)), h: Math.max(1, Math.round(bh * sy))
-      };
-    }
-    function item(rect, extra) {
-      var b = box(rect[0], rect[1], rect[2], rect[3]);
-      b.number = extra.number;
-      b.kind = '圈出';
-      b.prompt = extra.prompt;
-      b.correction = extra.correction;
-      b.reasonNote = extra.reasonNote || '';
-      b.reason = extra.reason || '';
-      b.knowledge = extra.knowledge || '';
-      b.studentAnswer = extra.studentAnswer || '';
-      return b;
-    }
-    var listed = [
-      item([400, 310, 70, 55], {
-        number: '2',
-        prompt: '悦悦将一张长方形纸对折后再对折，展开后两条折痕（ ）。\nA. 一定互相垂直    B. 一定互相平行\nC. 可能互相平行，也可能互相垂直    D. 长度一定相等',
-        correction: 'C',
-        reasonNote: '不是自己试',
-        reason: '概念不清',
-        knowledge: '线与角',
-        studentAnswer: 'A.一定互相垂直'
-      }),
-      item([340, 545, 55, 48], {
-        number: '5',
-        prompt: '一个九位数，最高位上的数字是3，百万位上的数字是6，万位上的数字是5，百位上的数字是8，其余各位上的数字都是0。这个数写作（ ）。\nA. 365800000    B. 306058000    C. 306050800    D. 360050800',
-        correction: 'C',
-        reasonNote: '不分段',
-        reason: '概念不清',
-        knowledge: '大数的写法',
-        studentAnswer: 'B'
-      }),
-      item([910, 22, 96, 70], {
-        number: '7',
-        prompt: '一个鸡蛋约重50克，照这样推算，1亿个这样的鸡蛋大约重多少吨？（ ）\nA. 5000吨    B. 500吨    C. 50吨    D. 5吨',
-        correction: 'A',
-        reasonNote: '认真算',
-        reason: '计算失误',
-        knowledge: '大数与单位',
-        studentAnswer: 'C.50吨'
-      }),
-      item([720, 508, 190, 78], {
-        number: '11',
-        prompt: '第七次全国人口普查公报显示深圳市常住人口为1756061人。比第六次全国人口普查增加七百一十三万六千零八十八人。\n（1）1756061读作（ ）。\n（2）七百一十三万六千零八十八写作（ ），这个数省略“万位”后面的尾数约是（ ）万。',
-        correction: '714万',
-        reasonNote: '忘记四舍五入',
-        reason: '计算失误',
-        knowledge: '四舍五入',
-        studentAnswer: '713万'
-      })
-    ];
-    listed.sheet = LARGE_NUMBER_SHEET;
-    return listed;
-  }
-
-  /* 同一份练习的第 3、4 页。签名对不上时不使用，避免套到乘法那份的第 3、4 页。 */
-  var LARGE_NUMBER_BACK_BITS = '000000000111000000000000000000000000000100000000000000011110000010100110111100001010111111100000';
-
-  function largeNumberBackBits(image) {
-    var w = image.width, h = image.height, data = image.data;
-    var x0 = Math.round(w * 410 / 1024);
-    var y0 = Math.round(h * 210 / 707);
-    var cols = 16, rows = 6, cw = Math.max(1, Math.round(w * 6 / 1024)), ch = Math.max(1, Math.round(h * 4 / 707));
-    var bits = '', j, i, yy, xx, p, on, r, g, b, lum;
-    if (y0 + rows * ch > h || x0 + cols * cw > w) return '';
-    for (j = 0; j < rows; j++) {
-      for (i = 0; i < cols; i++) {
-        on = 0;
-        for (yy = y0 + j * ch; yy < y0 + (j + 1) * ch; yy++) {
-          for (xx = x0 + i * cw; xx < x0 + (i + 1) * cw; xx++) {
-            p = (yy * w + xx) * 4;
-            r = data[p]; g = data[p + 1]; b = data[p + 2];
-            if (r >= 102 && r - Math.max(g, b) >= 8 && g < 230 && b < 220) continue;
-            lum = (r * 3 + g * 6 + b) / 10;
-            if (lum < 140) on++;
-          }
-        }
-        bits += on > cw * ch * 0.15 ? '1' : '0';
-      }
-    }
-    return bits;
-  }
-
-  function recognizeLargeNumbersBack(image) {
-    var w = image.width, h = image.height;
-    if (w < 900 || h < 600) return null;
-    var bits = largeNumberBackBits(image);
-    if (bits.length !== LARGE_NUMBER_BACK_BITS.length) return null;
-    var d = 0, i;
-    for (i = 0; i < bits.length; i++) if (bits[i] !== LARGE_NUMBER_BACK_BITS[i]) d++;
-    if (d > 18) return null;
-    var sx = w / 1024, sy = h / 707;
-    function box(x, y, bw, bh) {
-      return {
-        x: Math.round(x * sx), y: Math.round(y * sy),
-        w: Math.max(1, Math.round(bw * sx)), h: Math.max(1, Math.round(bh * sy))
-      };
-    }
-    function item(rect, extra) {
-      var b = box(rect[0], rect[1], rect[2], rect[3]);
-      b.number = extra.number;
-      b.kind = extra.kind || '圈出';
-      b.prompt = extra.prompt;
-      b.correction = extra.correction;
-      b.reasonNote = extra.reasonNote || '';
-      b.reason = extra.reason || '';
-      b.knowledge = extra.knowledge || '';
-      b.studentAnswer = extra.studentAnswer || '';
-      return b;
-    }
-    var listed = [
-      item([248, 185, 90, 50], {
-        number: '19',
-        prompt: '1个周角＝（ ）个平角＝（ ）个直角。',
-        correction: '2；4',
-        reason: '概念不清',
-        knowledge: '周角和平角',
-        studentAnswer: '2；8'
-      }),
-      item([400, 195, 130, 55], {
-        number: '20',
-        prompt: '把圆平均分成360份，其中1份所对的角的大小叫作（ ），记作（ ）。',
-        correction: '度，记作1°',
-        reasonNote: '忘记记此知识点',
-        reason: '概念不清',
-        knowledge: '角的度量',
-        studentAnswer: '角度'
-      }),
-      item([370, 425, 130, 140], {
-        number: '22',
-        prompt: '（1）画一条长3厘米的线段。\n（2）过Q点画出直线a的垂线和平行线。\n（3）在量角器上画一个60°的角。\n（4）用一副三角尺画一个150°的角，并保留作图痕迹。',
-        correction: '按题画出3厘米线段、垂线和平行线',
-        reasonNote: '不认真读题',
-        reason: '审题不清',
-        knowledge: '画线段和垂线',
-        studentAnswer: '（1）（2）没按题画完'
-      }),
-      item([600, 70, 340, 170], {
-        number: '23',
-        prompt: '塔克拉玛干沙漠面积“近34万”平方千米，在33万到35万的数轴上画出范围。337600平方千米，在同一条数轴上标出大致位置。',
-        correction: '（1）标出约34万；（2）标在33万右侧很近的位置',
-        reasonNote: '忘记标数；标得差了很多',
-        reason: '审题不清',
-        knowledge: '大数的数位',
-        studentAnswer: '（1）圈了范围没标数；（2）337600标得离33万太远'
-      }),
-      item([740, 310, 160, 120], {
-        number: '24',
-        kind: '叉号',
-        prompt: '找朋友，连一连。把数和读法连起来：只读一个0、读两个0、一个0也不读。',
-        correction: '没有下划线的不连',
-        reasonNote: '把所有数字都连了，其中有不同的',
-        reason: '审题不清',
-        knowledge: '零的读法',
-        studentAnswer: '把所有数都连了'
-      }),
-      item([670, 575, 200, 100], {
-        number: '26',
-        prompt: '看图求出∠1、∠2、∠3的度数。',
-        correction: '写出过程',
-        reasonNote: '没有写过程',
-        reason: '步骤不完整',
-        knowledge: '角的计算',
-        studentAnswer: '∠1=20°，∠2=180°-20°，∠3=70°'
-      })
-    ];
-    listed.sheet = LARGE_NUMBER_SHEET;
-    return listed;
-  }
-
-  /* 乘法卷第 3、4 页的版面指纹。对不上就不套那 5 道题和 83 分。 */
-  var PAGE_TWO_BITS = '11100000001111000111111100011111110011111110001111';
-
-  function pageTwoBits(image) {
-    var w = image.width, h = image.height, data = image.data;
-    var x0 = Math.round(w * 100 / 1024);
-    var y0 = Math.round(h * 238 / 713);
-    var cols = 10, rows = 5, cw = Math.max(1, Math.round(w * 14 / 1024)), ch = Math.max(1, Math.round(h * 10 / 713));
-    var bits = '', j, i, yy, xx, p, on, r, g, b, lum;
-    if (y0 < 0 || x0 < 0 || y0 + rows * ch > h || x0 + cols * cw > w) return '';
-    for (j = 0; j < rows; j++) {
-      for (i = 0; i < cols; i++) {
-        on = 0;
-        for (yy = y0 + j * ch; yy < y0 + (j + 1) * ch; yy += 2) {
-          for (xx = x0 + i * cw; xx < x0 + (i + 1) * cw; xx += 2) {
-            p = (yy * w + xx) * 4;
-            r = data[p]; g = data[p + 1]; b = data[p + 2];
-            if (isPenPixel(r, g, b)) continue;
-            lum = (r * 3 + g * 6 + b) / 10;
-            if (lum < 145) on++;
-          }
-        }
-        bits += on > (cw * ch / 4) * 0.22 ? '1' : '0';
-      }
-    }
-    return bits;
-  }
-
-  function pageTwoSignature(image) {
-    var bits = pageTwoBits(image);
-    if (bits.length !== PAGE_TWO_BITS.length) return false;
-    var d = 0, i;
-    for (i = 0; i < bits.length; i++) if (bits[i] !== PAGE_TWO_BITS[i]) d++;
-    return d <= 16;
-  }
-
-  /* 第 3、4 页。圈和叉才是错题；对勾和穿过版面的长红线仍是页标。照片可能倒着存。 */
-  function recognizePageTwo(image, pens) {
-    var w = image.width, h = image.height;
-    if (w < 900 || h < 600 || !pens || pens.length < 8) return null;
-    if (!pageTwoSignature(image)) return null;
-    function matched(flip) {
-      return penNear(pens, 450, 103, 90, 55, flip, w, h) &&
-        penNear(pens, 493, 240, 110, 55, flip, w, h) &&
-        penNear(pens, 430, 320, 90, 45, flip, w, h) &&
-        penNear(pens, 676, 445, 130, 55, flip, w, h) &&
-        penNear(pens, 448, 628, 90, 55, flip, w, h);
-    }
-    var flip = false;
-    if (!matched(false)) {
-      if (!matched(true)) return null;
-      flip = true;
-    }
-    function usePen(x, y, dx, dy) {
-      return penNear(pens, x, y, dx, dy, flip, w, h);
-    }
-    function fromPen(pen, extra) {
-      var q = {
-        x: pen.x, y: pen.y, w: pen.w, h: pen.h,
-        number: extra.number, kind: extra.kind || '圈出',
-        prompt: extra.prompt, correction: extra.correction,
-        reasonNote: extra.reasonNote || '', reason: extra.reason || '',
-        knowledge: extra.knowledge || '', studentAnswer: extra.studentAnswer || ''
-      };
-      return q;
-    }
-    var q17s = pens.filter(function (pen) {
-      var cx = pen.x + pen.w / 2, cy = pen.y + pen.h / 2;
-      if (flip) { cx = w - cx; cy = h - cy; }
-      return cx < w * 0.55 && cy > 165 && cy < 280 && pen.n > 80;
-    });
-    var q17 = q17s.length ? q17s.reduce(function (box, pen) {
-      var x1 = Math.max(box.x + box.w, pen.x + pen.w);
-      var y1 = Math.max(box.y + box.h, pen.y + pen.h);
-      box.x = Math.min(box.x, pen.x);
-      box.y = Math.min(box.y, pen.y);
-      box.w = x1 - box.x;
-      box.h = y1 - box.y;
-      return box;
-    }, { x: q17s[0].x, y: q17s[0].y, w: q17s[0].w, h: q17s[0].h }) : usePen(493, 240, 110, 55);
-    var listed = [
-      fromPen(usePen(450, 103, 90, 55), {
-        number: '15',
-        prompt: '福福在计算完83×133后，想检验计算结果是否正确，他可以用乘法（ ）律进行验算。',
-        correction: '交换',
-        reasonNote: '粗心',
-        reason: '概念不清',
-        knowledge: '乘法交换律',
-        studentAnswer: '分配律'
-      }),
-      fromPen(q17, {
-        number: '17',
-        prompt: '如果★＋■＝8，那么125×★＋125×■＝（ ）。\n如果★－■＝4，那么25×★－25×■＝（ ）。',
-        correction: '1000；100',
-        reasonNote: '判断错误',
-        reason: '计算失误',
-        knowledge: '乘法分配律',
-        studentAnswer: '2000；200'
-      }),
-      fromPen(usePen(430, 320, 90, 45), {
-        number: '20',
-        prompt: '请在括号里填上适当的数或式子，使算式可以运用运算律进行简算。\n168＋59＋（ ）　　125×78×（ ）　　25×37＋（ ）',
-        correction: '75',
-        reason: '概念不清',
-        knowledge: '乘法分配律',
-        studentAnswer: '63'
-      }),
-      fromPen(usePen(448, 628, 90, 55), {
-        number: '23',
-        kind: '叉号',
-        prompt: '用递等式计算。\n8×(125＋9)',
-        correction: '1072',
-        reasonNote: '经常忘记',
-        reason: '计算失误',
-        knowledge: '乘法分配律',
-        studentAnswer: '1009'
-      }),
-      fromPen(usePen(676, 445, 130, 55), {
-        number: '26',
-        prompt: '学校组织春游，租来大巴车和中巴车各18辆。每辆车刚好坐满。一共去了多少人？（不含司机）\n大巴车52座，中巴车38座。',
-        correction: '1620人',
-        reasonNote: '计算错误',
-        reason: '计算失误',
-        knowledge: '乘法',
-        studentAnswer: '1920人'
-      })
-    ];
-    listed.sheet = KNOWN_SHEET;
-    return listed;
-  }
-
-  /* 只把圈出的答案、叉号和实心批改收成错题。对勾和它上方的页标划线跳过。 */
-  function isKnownMultiplication(list) {
-    var by = Object.create(null);
-    list.forEach(function (q) { if (q && q.number) by[q.number] = q; });
-    var front = by['1'] && by['6'] &&
-      by['1'].knowledge === '乘法估算' && by['6'].knowledge === '乘法运算律' &&
-      (!by['8'] || by['8'].knowledge === '积的变化规律');
-    var back = by['15'] && by['17'] && by['20'] && by['23'] && by['26'] &&
-      by['15'].knowledge === '乘法交换律';
-    return !!(front || back);
-  }
 
   function headerDigit(image, x0, y0, x1, y1) {
     var bw = x1 - x0, bh = y1 - y0;
@@ -1501,8 +869,8 @@
     return 2;
   }
 
-  /* 卷头大号红字是扣分，不是得分。只认贴在页面最上方、写得比较大的那一组。 */
-  function headerDeduction(image) {
+  /* 只读页面最上方的一组大号红笔数字，不猜它是得分还是扣分。 */
+  function headerNumberMark(image) {
     var w = image.width, h = image.height, yLimit = Math.round(h * 0.2);
     var cols = new Int32Array(w), y, x, p, r, g, b;
     for (y = 0; y < yLimit; y++) for (x = 0; x < w; x++) {
@@ -2060,12 +1428,6 @@
     if (!w || !h || !image.data) return [];
     var pens = penComponents(image);
     if (!pens) return [];
-    var largeNumbers = recognizeLargeNumbers(image);
-    if (largeNumbers) return largeNumbers;
-    var largeBack = recognizeLargeNumbersBack(image);
-    if (largeBack) return largeBack;
-    var pageTwo = recognizePageTwo(image, pens);
-    if (pageTwo) return pageTwo;
     var columns = pageColumns(image);
     var kept = [];
     pens.forEach(function (pen) {
@@ -2133,33 +1495,24 @@
         beside = marginDigit(image, region, topPen.y - slack, topPen.y + Math.max(topPen.h, slack * 2));
       }
       var box = { x: x0, y: y0, w: Math.max(1, x1 - x0), h: Math.max(1, y1 - y0) };
-      var note = readNote(image, box);
-      if (!note.correction && box.w > box.h * 1.3) {
-        var side = Math.min(box.w, box.h);
-        var tightNote = readNote(image, { x: box.x, y: box.y, w: side, h: side });
-        if (tightNote.correction) {
-          note = tightNote;
-          box = { x: box.x, y: box.y, w: side, h: side };
-        }
-      }
+      /* 离线只做几何：题号、题目文字、订正和知识点都交给人工核对或 Agent 读取。
+       * 模板笔迹识别已移除，避免把某一本练习册的答案套到新试卷上。 */
       if (beside) number = beside;
-      if (note.number) number = note.number;
       var n = String(number);
-      var prompt = note.prompt
-        ? note.prompt
-        : ((beside || note.number || (region && region.anchored))
-          ? '自动标出：第' + n + '题，' + kind
-          : '自动标出：从上往下第' + n + '个题目区域，' + kind);
+      var anchored = !!beside || !!(region && region.anchored);
+      var prompt = (anchored ? '自动标出：第' + n + '题，' : '自动标出：从上往下第' + n + '个题目区域，') + kind;
       questions.push({
         x: box.x, y: box.y, w: box.w, h: box.h,
         number: n,
         kind: kind,
         prompt: prompt,
-        correction: note.correction,
-        reasonNote: note.reasonNote,
-        reason: note.reason,
-        knowledge: note.knowledge || '',
-        studentAnswer: note.studentAnswer || ''
+        source: 'offline',
+        numberConfident: anchored,
+        correction: '',
+        reasonNote: '',
+        reason: '',
+        knowledge: '',
+        studentAnswer: ''
       });
     }
     regions.forEach(function (region) {
@@ -2206,7 +1559,6 @@
     groups.forEach(function (group) {
       pushQuestion(null, group, questions.length + 1);
     });
-    questions = settleKnownNotes(image, questions);
     var labels = [];
     var anchored = [];
     var labelCols = columns;
@@ -2248,6 +1600,8 @@
           number: String(foundNo),
           kind: '圈出',
           prompt: '自动标出：第' + foundNo + '题，圈出',
+          source: 'offline',
+          numberConfident: true,
           correction: '',
           reasonNote: '',
           reason: '',
@@ -2272,14 +1626,17 @@
       return a.y - b.y || a.x - b.x;
     });
     var listed = questions.slice(0, 40);
-    if (isKnownMultiplication(listed) || pageTwoSignature(image)) listed.sheet = KNOWN_SHEET;
-    if (!listed.sheet) {
-      var deduction = headerDeduction(image);
-      // 页眉红圈里的大数是得分，较小的数才是扣分。17、25 仍按扣分，83 按得分。
-      if (deduction >= 50) listed.sheet = { score: String(deduction), total: '100' };
-      else if (deduction) listed.sheet = { score: String(Math.max(0, 100 - deduction)), total: '100', deduction: String(deduction) };
+    /* 卷头的大号红字可能是得分、扣分，也可能只是批改标记。离线只报读到的数字，
+     * 含义、满分、标题和年级都交给人工核对或 Agent 判断，不再按某一份卷子写死。 */
+    var headerNumber = headerNumberMark(image);
+    if (headerNumber) {
+      listed.sheet = {
+        headerNumber: String(headerNumber),
+        source: 'offline',
+        guessed: true,
+        note: '卷头读到数字，可能是得分或扣分，请核对后再填写。'
+      };
     }
-    attachStageNotes(image, listed);
     return listed;
   }
 
@@ -2372,202 +1729,64 @@
     };
   }
 
-  function markFix(mark) {
-    return String((mark && (mark.rightAnswer || mark.correction)) || '').trim();
-  }
 
-  function sheetScore(meta, fallbackScore) {
-    var score = String(meta && meta.score != null ? meta.score : '').trim() || fallbackScore;
-    var total = String(meta && meta.total != null ? meta.total : '').trim() || '100';
-    return { score: score, total: total };
-  }
-
-  /* 这张打开的练习册对得上第 1、6、8 题的订正时，综评按卷面来写。圈出的 17 是扣分。 */
-  function knownExamConclusion(meta, marks) {
-    var by = Object.create(null);
-    marks.forEach(function (mark) {
-      var n = String(mark.number || '').trim();
-      if (n) by[n] = mark;
-    });
-    var q1 = by['1'], q6 = by['6'], q8 = by['8'];
-    if (!q1 || !q6 || !q8) return null;
-    if (markFix(q1) !== 'D' || markFix(q6) !== 'B' || markFix(q8) !== 'C') return null;
-    if (q1.knowledge !== '乘法估算' || q6.knowledge !== '乘法运算律' || q8.knowledge !== '积的变化规律') return null;
-    var mark = sheetScore(meta, '83');
-    var picked = function (item, fallback) {
-      return String(item.studentAnswer || '').trim() || fallback;
-    };
-    var lines = [
-      '这是四年级数学第三单元乘法、第四单元运算律的课堂练习。满分 ' + mark.total + '，卷头圈出的 17 是扣分，得分 ' + mark.score + '，等级 A。',
-      '错题是第 1、6、8 题。对勾和勾上方的横线表示本页有错题，综评不把它们算进错题。',
-      '第 1 题估算全书大约有多少字，孩子选了 ' + picked(q1, 'C.180000') + '，订正为 D。198×31×39 靠近 24 万，卷面答案落在 18 万，错因是计算失误。',
-      '第 6 题判断四个计算过程里正确的有几个，孩子选了 ' + picked(q6, 'C.3') + '，订正为 B。①和③正确，②和④不正确，所以是 2 个。②式印到页边，只看到「35×100+1×」，未印出的因数不补。错因仍是计算失误。',
-      '第 8 题用计算器算 798×66，乘数 66 少按了十位上的 6，接着按 ×10= 可以得到正确结果。孩子选了 ' + picked(q8, 'D.×6=') + '，订正为 C。旁注是「' + (String(q8.reasonNote || '').trim() || '以为可以拼在一起') + '」，错因是概念不清。',
-      '三道里两道是计算失误，一道是积的变化规律没分清。运算律的式子大多能判断，失分在估算落到了哪一档，以及少按的 6 在哪一位。',
-      '下一步先讲第 8 题：少按的是十位，要补乘 10。再让第 1 题用 200×30×40 写出估算，对照选项 D。第 6 题把四个过程各判一次，说明②和④为什么不能算对。'
-    ];
-    var extra = marks.filter(function (mark) {
-      var n = String(mark.number || '').trim();
-      return n !== '1' && n !== '6' && n !== '8';
-    });
-    if (extra.length) {
-      lines.push('另外还标了 ' + extra.length + ' 道（' + extra.map(function (mark) {
-        return '第 ' + (String(mark.number || '').trim() || '未编号') + ' 题';
-      }).join('、') + '）。上面按第 1、6、8 题来写，这几道再核对一遍。');
-    }
-    return { title: '综评结论', text: lines.join('\n') };
-  }
-
-  function marksByNumber(marks) {
-    var by = Object.create(null);
-    marks.forEach(function (mark) {
-      var n = String(mark.number || '').trim();
-      if (n && !by[n]) by[n] = mark;
-    });
-    return by;
-  }
-
-  function pageTwoExamConclusion(meta, marks) {
-    var by = marksByNumber(marks);
-    if (!by['15'] || !by['17'] || !by['20'] || !by['23'] || !by['26']) return null;
-    if (markFix(by['15']) !== '交换') return null;
-    if (markFix(by['23']) !== '1072') return null;
-    var mark = sheetScore(meta, '');
-    var lines = [
-      '这是这份四年级数学练习的第3页和第4页，单元仍是乘法和运算律。' + (mark.score ? '得分 ' + mark.score + '，满分 ' + mark.total + '。' : '满分 ' + mark.total + '。'),
-      '圈出或打叉的错题是第15、17、20、23、26题。对勾，以及穿过题目的长红线，表示这一页有错题。',
-      '第15题检验83×133，要用乘法交换律把两个乘数对调再乘一遍。孩子写了分配律，订正为交换，原因是粗心。',
-      '第16题的括号已经按先求和、再算差、最后求商添好，这道是对的。旁边的「判断错误」是第17题的原因。',
-      '第17题两空都圈了。★＋■＝8时，125×★＋125×■＝1000，孩子写了2000。★－■＝4时，25×★－25×■＝100，孩子写了200。原因是判断错误。',
-      '第20题前两空41和8可以用来简算。第三空25×37＋（ ）应填75，75＝25×3，凑成25×40。孩子填了63。',
-      '第23题8×(125＋9)应分成8×125＋8×9＝1072。孩子写成(8×125)＋9＝1009。旁边又写成(8×125)×9＝9000，9000不是这道题的得数。原因是经常忘记。',
-      '第26题18×52＝936是对的。18×38应是684，两车一共18×90＝1620人。孩子写成784，一共1920人，原因是计算错误。',
-      '第22题两道竖式都标了错。504×26的验算13104是对的；134×16的验算写成2044，应是2144，这一处没有再圈。第24、25、27题的得数可以成立。'
-    ];
-    return { title: '综评结论', text: lines.join('\n') };
-  }
-
-  function wholeExamConclusion(meta, marks) {
-    var by = marksByNumber(marks);
-    if (!by['1'] || !by['6'] || !by['8'] || !by['15'] || !by['26']) return null;
-    if (markFix(by['1']) !== 'D' || markFix(by['8']) !== 'C' || markFix(by['15']) !== '交换') return null;
-    var front = knownExamConclusion(meta, marks);
-    var back = pageTwoExamConclusion(meta, marks);
-    if (!front || !back) return null;
-    var mark = sheetScore(meta, '83');
-    var lead = '这是四年级数学第三单元乘法、第四单元运算律的整份课堂练习。满分 ' + mark.total + '，卷头圈出的 17 是扣分，得分 ' + mark.score + '，等级 A。错题是第1、6、8题和第15、17、20、23、26题。';
-    return { title: '综评结论', text: lead + '\n' + front.text.split('\n').slice(2).join('\n') + '\n' + back.text.split('\n').slice(2).join('\n') };
-  }
-
-  function largeNumberFrontReady(by) {
-    var q2 = by['2'], q5 = by['5'], q7 = by['7'], q11 = by['11'];
-    if (!q2 || !q5 || !q7 || !q11) return false;
-    if (q2.knowledge !== '线与角' || q5.knowledge !== '大数的写法' || q7.knowledge !== '大数与单位') return false;
-    if (markFix(q2) !== 'C' || markFix(q5) !== 'C' || markFix(q7) !== 'A') return false;
-    return markFix(q11).indexOf('714') >= 0;
-  }
-
-  function largeNumberBackReady(by) {
-    var q19 = by['19'], q20 = by['20'], q22 = by['22'], q23 = by['23'], q24 = by['24'], q26 = by['26'];
-    if (!q19 || !q20 || !q22 || !q23 || !q24 || !q26) return false;
-    if (q19.knowledge !== '周角和平角' || q20.knowledge !== '角的度量' || q26.knowledge !== '角的计算') return false;
-    if (markFix(q19).indexOf('4') < 0 || markFix(q20).indexOf('1°') < 0) return false;
-    return markFix(q26).indexOf('过程') >= 0;
-  }
-
-  function largeNumberFrontLines() {
-    return [
-      '第2题把长方形纸对折两次，两条折痕不一定互相垂直，也可能互相平行。孩子选了 A，订正为 C。旁注是不是自己试，错因是概念不清。',
-      '第5题这个九位数写作 306050800。孩子选了 B，订正为 C。错因是不分段。',
-      '第7题1亿个约50克的鸡蛋大约重5000吨。孩子选了 C.50吨，订正为 A。',
-      '第11题7136088省略万位后面的尾数，千位是6，要进一，约是714万。孩子写成713万。错因是忘记四舍五入。'
-    ];
-  }
-
-  function largeNumberBackLines() {
-    return [
-      '第19题1个周角等于2个平角，等于4个直角。孩子写成2个平角、8个直角，订正为2；4。',
-      '第20题把圆平均分成360份，1份所对的角叫作度，记作1°。孩子写成角度。错因是忘记记此知识点。',
-      '第22题（1）（2）要画出3厘米线段，以及过Q点的垂线和平行线。卷面上这两问没有按题画完。错因是不认真读题。（3）的60°和（4）的150°画在卷面上。',
-      '第23题“近34万”要标在33万和35万之间，并写上数。337600是33.76万，应标在33万右侧很近的地方。孩子圈了范围但没标数，第二问标得离33万太远。',
-      '第24题找朋友，没有下划线的数不连。孩子把所有数都连了，其中有对不上的读法。',
-      '第26题∠1、∠2、∠3要写出计算过程。孩子写了∠1=20°，∠2=180°-20°，∠3=70°，错因是没有写过程。'
-    ];
-  }
-
-  function largeNumberWholeConclusion(meta, marks) {
-    var by = marksByNumber(marks);
-    if (!largeNumberFrontReady(by) || !largeNumberBackReady(by)) return null;
-    var mark = sheetScore(meta, '75');
-    var lines = [
-      '这是四年级数学第一单元认识更大的数、第二单元线与角的整份课堂练习。满分 ' + mark.total + '，卷头圈出的 25 是扣分，得分 ' + mark.score + '。错题是第2、5、7、11题和第19、20、22、23、24、26题。'
-    ];
-    return { title: '综评结论', text: lines.concat(largeNumberFrontLines(), largeNumberBackLines()).join('\n') };
-  }
-
-  /* 认识更大的数、线与角。卷头圈出的 25 是扣分。 */
-  function largeNumberConclusion(meta, marks) {
-    var by = marksByNumber(marks);
-    if (!largeNumberFrontReady(by) || largeNumberBackReady(by)) return null;
-    var mark = sheetScore(meta, '75');
-    var lines = [
-      '这是四年级数学第一单元认识更大的数、第二单元线与角的课堂练习。满分 ' + mark.total + '，卷头圈出的 25 是扣分，得分 ' + mark.score + '。',
-      '这张照片是第1、2页。错题是第2、5、7、11题。'
-    ];
-    return { title: '综评结论', text: lines.concat(largeNumberFrontLines()).join('\n') };
-  }
-
-  function largeNumberBackConclusion(meta, marks) {
-    var by = marksByNumber(marks);
-    if (!largeNumberBackReady(by) || largeNumberFrontReady(by)) return null;
-    var mark = sheetScore(meta, '75');
-    var lines = [
-      '这是四年级数学第一单元认识更大的数、第二单元线与角的课堂练习。满分 ' + mark.total + '，卷头圈出的 25 是扣分，得分 ' + mark.score + '。',
-      '这张照片是第3、4页。错题是第19、20、22、23、24、26题。'
-    ];
-    return { title: '综评结论', text: lines.concat(largeNumberBackLines()).join('\n') };
-  }
-
+  /* 综评只由录入的结构化字段生成，不针对任何一份具体试卷写死题目、答案或讲法。
+   * Agent 给出综评时优先采用，并在结果里标明来源。 */
   function summarizeExam(meta, marks) {
     meta = meta || {};
     marks = (marks || []).filter(function (mark) { return mark; });
-    var whole = wholeExamConclusion(meta, marks);
-    if (whole) return whole;
-    var known = knownExamConclusion(meta, marks);
-    if (known) return known;
-    var pageTwo = pageTwoExamConclusion(meta, marks);
-    if (pageTwo) return pageTwo;
-    var largeWhole = largeNumberWholeConclusion(meta, marks);
-    if (largeWhole) return largeWhole;
-    var largeNumbers = largeNumberConclusion(meta, marks);
-    if (largeNumbers) return largeNumbers;
-    var largeBack = largeNumberBackConclusion(meta, marks);
-    if (largeBack) return largeBack;
+    var agentText = String(meta.agentSummary || '').trim();
+    if (agentText) return { title: '综评结论', text: agentText, source: 'agent' };
+
+    var title = String(meta.title || '').trim();
+    var grade = String(meta.grade || '').trim();
+    var who = (grade ? grade + ' ' : '') + (title || (subjectLabel(meta.subject) + '试卷'));
+    var total = num(meta.total);
+    if (total == null) total = 100;
+    var score = num(meta.score);
+    var deduction = num(meta.deduction);
+    var head = '这份是' + who + '。';
+    if (score != null && total > 0) head += '得分 ' + score + '，满分 ' + total + '。';
+    else head += '满分 ' + total + '。卷面没有读出得分。';
+    if (deduction != null && deduction > 0) head += '卷头圈出的 ' + deduction + ' 是扣分。';
+    var lines = [head];
+
     if (!marks.length) {
-      return {
-        title: '综评结论',
-        text: '这几页还没有认出的错题，综评先空着。核对红笔、补上错题后，这里会按错题和错因写出来。满分没有特别标注时按 100 分。'
-      };
+      lines.push('这几页还没有认出的错题，综评先空着。核对红笔、补上错题，或把照片交给 Agent 分析后，这里会按录入的题号、订正和错因写出来。满分没有特别标注时按 100 分。');
+      return { title: '综评结论', text: lines.join('\n'), source: 'offline' };
     }
+
     var ranked = marks.slice().sort(function (a, b) {
       return questionRank(a.number) - questionRank(b.number);
     });
     var nums = [];
     ranked.forEach(function (mark) {
       var n = String(mark.number || '').trim();
-      if (n) nums.push(n);
+      /* 同一大题的不同小题会重复题号，题号清单里只列一次。 */
+      if (n && nums.indexOf(n) < 0) nums.push(n);
     });
-    var title = String(meta.title || '').trim();
-    var grade = String(meta.grade || '').trim();
-    var who = (grade ? grade + ' ' : '') + (title || (subjectLabel(meta.subject) + '试卷'));
-    var score = num(meta.score);
-    var total = num(meta.total);
-    if (total == null) total = 100;
-    var head = '这份是' + who + '。';
-    if (score != null && total > 0) head += '得分 ' + score + '，满分 ' + total + '。';
-    else head += '满分 ' + total + '。卷面没有读出得分。';
-    var lines = [head];
     lines.push('共记下 ' + marks.length + ' 道错题' + (nums.length ? '，题号是第 ' + nums.join('、') + ' 题。' : '。题号还没有标全。'));
+
+    var detail = [];
+    ranked.forEach(function (mark) {
+      var bits = [];
+      var kn = String(mark.knowledge || '').trim();
+      var sa = String(mark.studentAnswer || '').trim();
+      var ra = String(mark.rightAnswer || mark.correction || '').trim();
+      var reason = String(mark.reason || '').trim();
+      var note = String(mark.reasonNote || '').trim();
+      if (kn) bits.push(kn);
+      if (sa) bits.push('孩子答 ' + sa);
+      if (ra) bits.push('订正 ' + ra);
+      if (reason) bits.push('错因 ' + reason);
+      if (note) bits.push('卷面旁注「' + note + '」');
+      if (bits.length) detail.push('第 ' + (String(mark.number || '').trim() || '?') + ' 题：' + bits.join('；') + '。');
+    });
+    if (detail.length) {
+      detail.slice(0, 8).forEach(function (line) { lines.push(line); });
+      if (detail.length > 8) lines.push('另有 ' + (detail.length - 8) + ' 道已在错题清单里，逐条核对。');
+    }
+
     var reasonCount = Object.create(null);
     var knowledge = [];
     marks.forEach(function (mark) {
@@ -2577,13 +1796,480 @@
     });
     var reasons = Object.keys(reasonCount).map(function (name) { return { name: name, count: reasonCount[name] }; });
     reasons.sort(function (a, b) { return b.count - a.count || (a.name > b.name ? 1 : -1); });
-    if (reasons.length) {
-      lines.push('错因里' + reasons.map(function (row) { return row.name + ' ' + row.count + ' 道'; }).join('，') + '。');
-    }
-    if (knowledge.length) lines.push('涉及' + knowledge.join('、') + '。');
+    if (reasons.length) lines.push('错因里' + reasons.map(function (row) { return row.name + ' ' + row.count + ' 道'; }).join('，') + '。');
+    if (knowledge.length) lines.push('涉及' + knowledge.slice(0, 12).join('、') + '。');
+
+    var agentTips = Array.isArray(meta.agentSuggestions) ? meta.agentSuggestions.filter(function (s) {
+      return String(s || '').trim();
+    }) : [];
+    if (agentTips.length) lines.push('建议：' + agentTips.slice(0, 3).map(function (s) { return String(s).trim(); }).join('；') + '。');
     var tip = reasons[0] && REASON_TIP[reasons[0].name];
     lines.push(tip ? '下一步：' + tip.detail : '下一步：先把每道错题的订正和错因核对完，再按知识点各做一道变式。');
-    return { title: '综评结论', text: lines.join('\n') };
+    lines.push('以上按录入的信息生成；题目文字和手写订正请核对，信息不全时可用 Agent 分析补充。');
+    return { title: '综评结论', text: lines.join('\n'), source: 'offline' };
+  }
+
+  /* ===== Agent 交接协议 =====
+   * 离线算法只负责几何（红笔、分栏、题号、框）。读懂题目、手写订正、知识点归因和
+   * 针对性讲评需要语义理解，交给 Agent：这里定义请求包、提示词、结果格式与合并规则。
+   * 照片默认不进请求包；是否附带图片由使用方显式决定。 */
+  var AGENT_SCHEMA_VERSION = 1;
+  var AGENT_RESULT_KIND = 'paper-analysis-result';
+
+  var AGENT_OUTPUT_SCHEMA = {
+    schemaVersion: 1,
+    kind: AGENT_RESULT_KIND,
+    paper: {
+      title: '试卷名称，读不到就留空字符串',
+      grade: '年级或册次',
+      subject: '学科 id，如 math / chinese / english',
+      examDate: 'YYYY-MM-DD，读不到留空',
+      score: '得分数字，读不到留空',
+      total: '满分数字，未特别标注按 100',
+      deduction: '卷头圈出的扣分数字，读不到留空',
+      summary: '综评正文，2～5 段，用换行分隔；只写卷面上看得到的内容',
+      suggestions: ['下一步建议，最多 3 条']
+    },
+    pages: [{
+      index: 0,
+      items: [{
+        number: '题号，读不到就留空',
+        prompt: '题目原文',
+        studentAnswer: '孩子写的答案',
+        rightAnswer: '正确答案或红笔订正',
+        knowledge: '对应知识点',
+        reason: '概念不清|计算失误|审题不清|步骤不完整|记忆不牢|时间不够|其他',
+        reasonNote: '卷面旁注或错因原话',
+        kind: '圈出|叉号|批改|未标',
+        x: 0.1, y: 0.2, w: 0.3, h: 0.1,
+        confidence: 0.9,
+        match: '可选：new 强制新建，box 只按框对齐，留空自动判断'
+      }]
+    }]
+  };
+
+  function agentBox(mark) {
+    function v(n) { var x = Number(n); return isFinite(x) ? Math.max(0, Math.min(1, x)) : 0; }
+    return { x: v(mark.x), y: v(mark.y), w: v(mark.w), h: v(mark.h) };
+  }
+
+  function copyObject(src) {
+    var out = {}, k;
+    for (k in src) if (Object.prototype.hasOwnProperty.call(src, k)) out[k] = src[k];
+    return out;
+  }
+
+  function agentBoxText(box) {
+    function f(v) { return Math.round(Number(v || 0) * 1000) / 1000; }
+    return '[' + f(box.x) + ',' + f(box.y) + ',' + f(box.w) + ',' + f(box.h) + ']';
+  }
+
+  function buildAgentPrompt(request) {
+    var pages = (request && request.pages) || [];
+    var hint = String((request && request.paper && request.paper.headerHint) || '').trim();
+    var count = 0;
+    pages.forEach(function (p) { count += (p.candidates || []).length; });
+    /* 提示词要能脱离请求包单独使用：把候选框直接列出来，并说明照片是分析的前提。 */
+    var candLines = pages.map(function (p, i) {
+      var cs = p.candidates || [];
+      if (!cs.length) return '  照片 ' + (i + 1) + '：没有离线候选';
+      var shown = cs.slice(0, 20).map(function (c) {
+        return '#' + (c.number || '?') + (c.numberConfident ? '*' : '') + agentBoxText(c.box || {});
+      }).join(' ');
+      return '  照片 ' + (i + 1) + '：' + shown + (cs.length > 20 ? ' …另有 ' + (cs.length - 20) + ' 个' : '');
+    });
+    var lines = [
+      '你在分析一份已经批改过的中小学试卷。请只读卷面，逐题核对，不要编造题目或答案。',
+      '输入：' + pages.length + ' 张照片，共 ' + count + ' 个离线候选错题框。一张照片可能拍到跨页的两页试卷；items 按「照片」分组，index 与照片序号一致，不要按印刷页码另拆页。',
+      '照片必须随请求一起提供。如果没有收到照片，请直接说明缺少照片并停止分析，不要只凭候选框猜题目或答案。',
+      '坐标：box 是相对整张照片宽高的 0～1 归一化坐标，x/y 是左上角，w/h 是宽高。离线候选的框、题号和数量都可能不准，以照片为准。',
+      '离线候选清单（#题号，* 表示读到了印刷题号，后面是 [x,y,w,h]）：',
+      candLines.join('\n'),
+      '要做的事：',
+      '1. 读出卷头的试卷名称、年级、学科、得分、满分、卷头圈出的扣分数字；读不清的字段留空，不要猜。' +
+        (hint ? '本机在卷头读到大号数字「' + hint + '」，可能是得分也可能是扣分，请以照片为准判断。' : ''),
+      '2. 逐题找出被红笔圈出、打叉或批改的错题，写出题号、题目原文、孩子的答案、正确订正、涉及的知识点、错因和卷面旁注。大的红勾表示答对，不要记成错题。',
+      '3. 用离线候选框对齐每一道错题：能对应上就沿用它的 box；离线漏掉的错题，按它在照片里的位置给出 box。',
+      '4. 写一段综评：说明错了哪些题、集中在哪些知识点和错因、下一步先补什么。只依据卷面，不写没看到的内容。',
+      '输出要求：只输出一个 JSON 对象，不要 Markdown 代码块，不要解释文字。reason 必须是给定枚举之一或留空；坐标必须是 0～1 的数字；数字字段用数字或空字符串。同一大题的不同小题可重复题号分别列出；给 match:"new" 可强制新建一条而不合并离线候选。',
+      '输出格式：',
+      JSON.stringify(AGENT_OUTPUT_SCHEMA, null, 2)
+    ];
+    return lines.join('\n');
+  }
+
+  function buildAgentRequest(bundle, options) {
+    options = options || {};
+    var src = bundle || {};
+    var paper = (src.paper && typeof src.paper === 'object' && !Array.isArray(src.paper)) ? src.paper : src;
+    var pages = Array.isArray(src.pages) ? src.pages : [];
+    var request = {
+      schemaVersion: AGENT_SCHEMA_VERSION,
+      kind: 'paper-analysis-request',
+      createdAt: new Date().toISOString(),
+      paper: {
+        title: String(paper.title || '').trim(),
+        grade: String(paper.grade || '').trim(),
+        subject: String(paper.subject || '').trim(),
+        examDate: String(paper.examDate || '').trim(),
+        score: String(paper.score == null ? '' : paper.score).trim(),
+        total: String(paper.total == null ? '' : paper.total).trim(),
+        deduction: String(paper.deduction == null ? '' : paper.deduction).trim(),
+        headerHint: String(paper.headerHint || '').trim()
+      },
+      pages: pages.map(function (page, index) {
+        var candidates = (page.marks || page.candidates || []).map(function (mark) {
+          return {
+            number: String(mark.number || '').trim(),
+            kind: String(mark.kind || '').trim(),
+            prompt: String(mark.prompt || '').trim(),
+            numberConfident: mark.numberConfident === true,
+            box: agentBox(mark)
+          };
+        });
+        return {
+          index: index,
+          id: String(page.id || ''),
+          width: Number(page.width) || 0,
+          height: Number(page.height) || 0,
+          imageName: String(page.sourceName || ''),
+          image: options.includeImages ? (page.imageDataUrl || null) : null,
+          candidates: candidates
+        };
+      }),
+      catalog: {
+        subjects: SUBJECTS.map(function (s) { return { id: s[0], label: s[1] }; }),
+        reasons: REASONS.slice(),
+        knowledgeHints: (options.knowledgeCatalog || []).slice(0, 300)
+      },
+      outputSchema: AGENT_OUTPUT_SCHEMA
+    };
+    request.instructions = buildAgentPrompt(request);
+    return request;
+  }
+
+  /* 从模型回复里取 JSON：允许 ```json 代码块，也允许前后带说明文字。 */
+  function parseAgentText(text) {
+    var s = String(text == null ? '' : text).trim();
+    if (!s) throw new Error('Agent 没有回复内容。');
+    var fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(s);
+    if (fence) s = fence[1].trim();
+    else {
+      var first = s.indexOf('{');
+      var last = s.lastIndexOf('}');
+      if (first < 0 || last <= first) throw new Error('回复里没有找到 JSON 对象。');
+      s = s.slice(first, last + 1);
+    }
+    var parsed;
+    try { parsed = JSON.parse(s); }
+    catch (e) { throw new Error('回复不是合法的 JSON：' + e.message); }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('回复的顶层必须是 JSON 对象。');
+    return parsed;
+  }
+
+  function agentString(value, max) {
+    if (value == null) return '';
+    return String(value).trim().slice(0, max || 200);
+  }
+
+  function agentNumber(value) {
+    if (value === '' || value == null) return null;
+    var n = Number(value);
+    return isFinite(n) ? n : null;
+  }
+
+  function validateAgentResult(raw) {
+    var obj = raw;
+    if (typeof raw === 'string') obj = parseAgentText(raw);
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { ok: false, error: '结果必须是 JSON 对象。' };
+    if (obj.kind && obj.kind !== AGENT_RESULT_KIND) return { ok: false, error: '结果不是试卷分析结果（kind 不匹配）。' };
+    var version = obj.schemaVersion == null ? AGENT_SCHEMA_VERSION : Number(obj.schemaVersion);
+    if (!isFinite(version) || version > AGENT_SCHEMA_VERSION) return { ok: false, error: '结果版本比当前页面更新，请升级后再导入。' };
+    var rawPages = obj.pages;
+    if (rawPages != null && !Array.isArray(rawPages)) return { ok: false, error: 'pages 必须是数组。' };
+    rawPages = rawPages || [];
+    if (rawPages.length > 30) return { ok: false, error: '一次最多导入 30 页。' };
+
+    var warnings = [];
+    var paperIn = (obj.paper && typeof obj.paper === 'object') ? obj.paper : {};
+    var paper = {
+      title: agentString(paperIn.title, 120),
+      grade: agentString(paperIn.grade, 40),
+      subject: agentString(paperIn.subject, 40),
+      examDate: agentString(paperIn.examDate, 20),
+      score: agentNumber(paperIn.score),
+      total: agentNumber(paperIn.total),
+      deduction: agentNumber(paperIn.deduction),
+      summary: agentString(paperIn.summary, 8000),
+      suggestions: []
+    };
+    if (Array.isArray(paperIn.suggestions)) {
+      paper.suggestions = paperIn.suggestions.slice(0, 8).map(function (s) { return agentString(s, 300); }).filter(function (s) { return s; });
+    }
+    var pages = [];
+    rawPages.forEach(function (pg, idx) {
+      if (!pg || typeof pg !== 'object') { warnings.push('第 ' + (idx + 1) + ' 页格式不对，已跳过。'); return; }
+      var index = pg.index == null ? idx : Number(pg.index);
+      if (!isFinite(index) || Math.floor(index) !== index) { warnings.push('第 ' + (idx + 1) + ' 页的 index 不是整数，按顺序处理。'); index = idx; }
+      var itemsIn = Array.isArray(pg.items) ? pg.items : [];
+      if (itemsIn.length > 60) warnings.push('第 ' + (index + 1) + ' 页超过 60 道，只取前 60 道。');
+      var items = [];
+      itemsIn.slice(0, 60).forEach(function (it) {
+        if (!it || typeof it !== 'object') return;
+        var reason = agentString(it.reason, 20);
+        if (reason && REASONS.indexOf(reason) < 0) { warnings.push('错因「' + reason + '」不在清单里，已留空。'); reason = ''; }
+        var status = it.status === 'mastered' ? 'mastered' : 'open';
+        var box = null;
+        var bx = agentNumber(it.x), by = agentNumber(it.y), bw = agentNumber(it.w), bh = agentNumber(it.h);
+        if (bx != null && by != null && bw != null && bh != null) {
+          var x1 = Math.max(0, Math.min(1, bx));
+          var y1 = Math.max(0, Math.min(1, by));
+          var w1 = Math.max(0, Math.min(1 - x1, bw));
+          var h1 = Math.max(0, Math.min(1 - y1, bh));
+          /* 夹住整块框，不让 x+w / y+h 超出照片；宽高被夹成 0 时视为没给框。 */
+          if (w1 > 0 && h1 > 0) box = { x: x1, y: y1, w: w1, h: h1 };
+        }
+        var confidence = agentNumber(it.confidence);
+        items.push({
+          number: agentString(it.number, 12),
+          prompt: agentString(it.prompt, 4000),
+          studentAnswer: agentString(it.studentAnswer, 200),
+          rightAnswer: agentString(it.rightAnswer != null && it.rightAnswer !== '' ? it.rightAnswer : it.correction, 200),
+          knowledge: agentString(it.knowledge, 80),
+          reason: reason,
+          reasonNote: agentString(it.reasonNote, 300),
+          kind: agentString(it.kind, 20),
+          status: status,
+          confidence: confidence,
+          box: box,
+          match: agentString(it.match, 12)
+        });
+      });
+      pages.push({ index: index, items: items });
+    });
+    return {
+      ok: true,
+      result: { schemaVersion: AGENT_SCHEMA_VERSION, kind: AGENT_RESULT_KIND, paper: paper, pages: pages },
+      warnings: warnings
+    };
+  }
+
+  function boxOverlap(a, b) {
+    var x0 = Math.max(a.x, b.x), y0 = Math.max(a.y, b.y);
+    var x1 = Math.min(a.x + a.w, b.x + b.w), y1 = Math.min(a.y + a.h, b.y + b.h);
+    if (x1 <= x0 || y1 <= y0) return 0;
+    var inter = (x1 - x0) * (y1 - y0);
+    var area = Math.max(1e-6, a.w * a.h + b.w * b.h - inter);
+    return inter / area;
+  }
+
+  /* 题号相同但框离得太远，多半是离线把题号认错了：宁可新建，也不要合并到错误位置。 */
+  function boxesNear(a, b) {
+    if (!a || !b) return true;
+    if (boxOverlap(a, b) > 0.02) return true;
+    var ax = a.x + a.w / 2, ay = a.y + a.h / 2;
+    var bx = b.x + b.w / 2, by = b.y + b.h / 2;
+    return Math.sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by)) < 0.18;
+  }
+
+  function findAgentTarget(marks, item, used) {
+    var i, best = -1, bestScore = 0;
+    if (item.match === 'new') {
+      /* 「强制新建」只针对离线候选：重复导入同一份结果时，题号与题目完全一致的
+       * Agent 条目必须复用，否则每导入一次就多出一批重复错题。 */
+      for (i = 0; i < marks.length; i++) {
+        if (used[i] || !marks[i].agent) continue;
+        if (String(marks[i].number || '') === String(item.number || '') &&
+            String(marks[i].prompt || '') === String(item.prompt || '')) return i;
+      }
+      return -1;
+    }
+    if (item.box && item.match !== 'number') {
+      var itemArea = Math.max(1e-6, item.box.w * item.box.h);
+      for (i = 0; i < marks.length; i++) {
+        if (used[i]) continue;
+        var candidate = agentBox(marks[i]);
+        var candArea = candidate.w * candidate.h;
+        /* 离线偶尔会把一整条红线画成巨大的框，别让小题被这种框吞掉。 */
+        if (candArea > itemArea * 4) continue;
+        var score = boxOverlap(candidate, item.box);
+        if (score > bestScore) { bestScore = score; best = i; }
+      }
+      if (best >= 0 && bestScore >= 0.4) return best;
+    }
+    if (item.number && item.match !== 'box') {
+      for (i = 0; i < marks.length; i++) {
+        if (used[i]) continue;
+        if (String(marks[i].number || '').trim() !== item.number) continue;
+        if (item.match === 'number' || boxesNear(agentBox(marks[i]), item.box)) return i;
+      }
+    }
+    return -1;
+  }
+
+  /* 只清理「自动标出」且完全没被人工补过内容的离线候选；人工标的和已补过的保留。 */
+  function isUnclaimedOfflinePlaceholder(mark) {
+    if (!mark || mark.agent) return false;
+    if (!/^自动标出/.test(String(mark.prompt || '').trim())) return false;
+    var keys = ['knowledge', 'studentAnswer', 'rightAnswer', 'reason', 'reasonNote'];
+    for (var i = 0; i < keys.length; i++) if (String(mark[keys[i]] || '').trim()) return false;
+    return true;
+  }
+
+  function agentMark(item) {
+    var box = item.box || { x: 0.02, y: 0.02, w: 0.12, h: 0.05 };
+    return {
+      id: newId('w_'),
+      x: box.x, y: box.y, w: box.w, h: box.h,
+      auto: false,
+      agent: true,
+      number: '', prompt: '', knowledge: '', reason: '', reasonNote: '',
+      studentAnswer: '', rightAnswer: '', status: 'open', reviews: [],
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  function isOfflineMark(mark) {
+    return !!(mark && (mark.source === 'offline' || mark.auto === true ||
+      /^自动标出/.test(String(mark.prompt || '').trim())));
+  }
+
+  function isOfflinePlaceholder(mark, key, current) {
+    /* 离线生成的「自动标出：第N题…」和跟着算出来的题号都只是占位，Agent 可以覆盖。 */
+    if (key === 'prompt') return /^自动标出[:：]/.test(current);
+    if (key === 'number') return isOfflineMark(mark) && /^\d+$/.test(current);
+    return false;
+  }
+
+  function applyAgentField(mark, key, value, overwrite) {
+    if (!value) return false;
+    var current = String(mark[key] == null ? '' : mark[key]).trim();
+    if (current && !overwrite && !isOfflinePlaceholder(mark, key, current)) return false;
+    if (current === String(value).trim()) return false;
+    mark[key] = value;
+    return true;
+  }
+
+  /* 把 Agent 结果合并进草稿。默认只填空字段，不覆盖人工已录入的内容；
+   * 重复导入同一结果不会产生新错题。返回新的 bundle，不修改入参。 */
+  function applyAgentResult(bundle, raw, options) {
+    options = options || {};
+    var checked = validateAgentResult(raw);
+    if (!checked.ok) throw new Error(checked.error);
+    var result = checked.result;
+    var warnings = checked.warnings.slice();
+    var src = bundle || {};
+    var next = copyObject(src);
+    var pages = Array.isArray(src.pages) ? src.pages : [];
+    next.pages = pages.map(function (page) {
+      var p = copyObject(page);
+      p.marks = (page.marks || []).map(copyObject);
+      return p;
+    });
+    var paperTarget = (src.paper && typeof src.paper === 'object') ? (next.paper = copyObject(src.paper)) : next;
+    var paperIn = result.paper;
+    var applied = { updated: 0, created: 0, paperFields: 0, pruned: 0 };
+    var total = paperIn.total != null ? paperIn.total : (agentNumber(paperTarget.total) != null ? agentNumber(paperTarget.total) : 100);
+    var score = paperIn.score;
+    if (score == null && paperIn.deduction != null && total != null) score = Math.max(0, total - paperIn.deduction);
+    var paperFields = {
+      title: paperIn.title, grade: paperIn.grade, subject: paperIn.subject, examDate: paperIn.examDate,
+      score: score == null ? '' : String(score), total: total == null ? '' : String(total)
+    };
+    Object.keys(paperFields).forEach(function (key) {
+      /* 草稿里的满分、年级、学科多是默认值或孩子档案带出来的，不是人工录入；
+       * 只有用户真正动过这几个字段（*_Edited）才不可被 Agent 纠正。 */
+      var force = !!options.overwrite ||
+        (key === 'total' && paperTarget.totalEdited === false) ||
+        (key === 'grade' && paperTarget.gradeEdited !== true) ||
+        (key === 'subject' && paperTarget.subjectEdited !== true);
+      if (applyAgentField(paperTarget, key, paperFields[key], force)) applied.paperFields++;
+    });
+    if (paperIn.deduction != null && (options.overwrite || !String(paperTarget.deduction || '').trim())) {
+      paperTarget.deduction = String(paperIn.deduction);
+      applied.paperFields++;
+    }
+    if (paperIn.summary && (options.overwrite || !String(paperTarget.agentSummary || '').trim())) {
+      paperTarget.agentSummary = paperIn.summary;
+      applied.paperFields++;
+    }
+    if (paperIn.suggestions.length && (options.overwrite || !(Array.isArray(paperTarget.agentSuggestions) && paperTarget.agentSuggestions.length))) {
+      paperTarget.agentSuggestions = paperIn.suggestions.slice();
+    }
+    paperTarget.agentAt = new Date().toISOString();
+    paperTarget.agentSource = 'agent';
+
+    result.pages.forEach(function (pg) {
+      var page = next.pages[pg.index];
+      if (!page) { warnings.push('结果里的第 ' + (pg.index + 1) + ' 页在草稿里不存在，已跳过。'); return; }
+      var used = new Uint8Array(page.marks.length);
+      pg.items.forEach(function (item) {
+        var at = findAgentTarget(page.marks, item, used);
+        var changed = false;
+        if (at >= 0) {
+          used[at] = 1;
+          var mark = page.marks[at];
+          var fields = {
+            number: item.number, prompt: item.prompt, knowledge: item.knowledge,
+            reason: item.reason, reasonNote: item.reasonNote, studentAnswer: item.studentAnswer,
+            rightAnswer: item.rightAnswer, kind: item.kind, status: item.status
+          };
+          Object.keys(fields).forEach(function (key) {
+            if (applyAgentField(mark, key, fields[key], !!options.overwrite)) changed = true;
+          });
+          /* 合并进离线候选时，框也用 Agent 看过照片后给的位置，别留着那个小误判框。 */
+          if (item.box && isOfflineMark(mark)) {
+            ['x', 'y', 'w', 'h'].forEach(function (key) {
+              if (mark[key] !== item.box[key]) { mark[key] = item.box[key]; changed = true; }
+            });
+          }
+          if (item.confidence != null) mark.agentConfidence = item.confidence;
+          mark.agent = true;
+          if (changed) applied.updated++;
+        } else {
+          if (page.marks.length >= 60) { warnings.push('第 ' + (pg.index + 1) + ' 页已满 60 道，新错题没有加入。'); return; }
+          var fresh = agentMark(item);
+          var createdFields = {
+            number: item.number, prompt: item.prompt, knowledge: item.knowledge,
+            reason: item.reason, reasonNote: item.reasonNote, studentAnswer: item.studentAnswer,
+            rightAnswer: item.rightAnswer, kind: item.kind, status: item.status
+          };
+          Object.keys(createdFields).forEach(function (key) {
+            if (createdFields[key]) fresh[key] = createdFields[key];
+          });
+          if (item.confidence != null) fresh.agentConfidence = item.confidence;
+          if (!item.box) warnings.push('第 ' + (pg.index + 1) + ' 页有一道新错题没给框，放在页左上角待调整。');
+          page.marks.push(fresh);
+          applied.created++;
+        }
+      });
+      if (!options.keepOffline) {
+        var claimed = used;
+        var before = page.marks.length;
+        page.marks = page.marks.filter(function (mark, idx) {
+          return !isUnclaimedOfflinePlaceholder(mark) || (idx < claimed.length && claimed[idx]);
+        });
+        applied.pruned += before - page.marks.length;
+      }
+      page.marks.sort(function (a, b) {
+        return questionRank(a.number) - questionRank(b.number) || a.y - b.y || a.x - b.x;
+      });
+    });
+    return { bundle: next, result: result, applied: applied, warnings: warnings };
+  }
+
+  /* 只有用户勾选「附带照片」时才把图片转成 data URL 放进请求包。 */
+  function blobToDataUrl(blob) {
+    if (!blob || typeof blob.arrayBuffer !== 'function') return Promise.reject(new Error('这张照片读不出来。'));
+    return blob.arrayBuffer().then(function (buffer) {
+      var bytes = new Uint8Array(buffer);
+      var binary = '', chunk = 8192, i;
+      for (i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      var toBase64 = typeof btoa === 'function' ? btoa : function (s) { return Buffer.from(s, 'binary').toString('base64'); };
+      return 'data:' + (blob.type || 'image/jpeg') + ';base64,' + toBase64(binary);
+    });
   }
 
   function buildSuggestions(papers, items, knowledge, reasons, scoreRates) {
@@ -2784,6 +2470,9 @@
       examDate: String(raw && raw.examDate || '').trim(),
       score: score,
       total: total,
+      deduction: num(raw && raw.deduction),
+      agentSummary: String(raw && raw.agentSummary || '').trim(),
+      agentSuggestions: Array.isArray(raw && raw.agentSuggestions) ? raw.agentSuggestions.slice(0, 8) : [],
       childId: (raw && raw.childId) || null,
       childName: String(raw && raw.childName || '').trim(),
       summary: String(raw && raw.summary || '').trim(),
@@ -2963,6 +2652,14 @@
     duplicateOf: duplicateOf,
     duplicateMessage: duplicateMessage,
     libraryFingerprints: libraryFingerprints,
+    AGENT_SCHEMA_VERSION: AGENT_SCHEMA_VERSION,
+    AGENT_OUTPUT_SCHEMA: AGENT_OUTPUT_SCHEMA,
+    buildAgentRequest: buildAgentRequest,
+    buildAgentPrompt: buildAgentPrompt,
+    parseAgentText: parseAgentText,
+    validateAgentResult: validateAgentResult,
+    applyAgentResult: applyAgentResult,
+    blobToDataUrl: blobToDataUrl,
     savePaper: savePaper,
     updateItem: updateItem,
     deletePaper: deletePaper
