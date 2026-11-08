@@ -1,0 +1,103 @@
+# 每天 23:30（北京时间）把上游同步进本仓库 main，再合并到 mm。
+# GitHub 的 schedule 使用 UTC，且只运行默认分支上的工作流，因此本文件必须在 main 上。
+name: 同步上游并合并到 mm
+
+on:
+  schedule:
+    # 23:30 Asia/Shanghai (UTC+8) = 15:30 UTC。中国无夏令时。
+    - cron: "30 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-into-mm
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 同步上游 main，再合并进 mm
+        shell: bash
+        env:
+          UPSTREAM_URL: https://github.com/xiaoyang111222/cn-math-taxonomy.git
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 冲突块保留指定一侧。该侧没有这个文件时，按该侧的删除处理。
+          # side 取 ours 或 theirs。合并 main 进 mm 时，ours 就是 mm。
+          keep_side() {
+            local side="$1"
+            local stage found=0
+            if [ "$side" = "ours" ]; then
+              stage=2
+            else
+              stage=3
+            fi
+
+            while IFS= read -r -d '' path; do
+              found=1
+              echo "冲突保留 ${side}: ${path}"
+              if git cat-file -e ":${stage}:${path}" 2>/dev/null; then
+                git checkout "--${side}" -- "$path"
+                git add -- "$path"
+              else
+                git rm -f -- "$path"
+              fi
+            done < <(git diff -z --name-only --diff-filter=U)
+
+            if [ "$found" -eq 0 ]; then
+              echo "合并失败，但没有未解决的冲突文件" >&2
+              git status --short >&2
+              exit 1
+            fi
+            if [ -n "$(git diff -z --name-only --diff-filter=U)" ]; then
+              echo "仍有未解决的冲突" >&2
+              git status --short >&2
+              exit 1
+            fi
+            git commit --no-edit
+          }
+
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream "$UPSTREAM_URL"
+          else
+            git remote add upstream "$UPSTREAM_URL"
+          fi
+
+          git fetch upstream main
+          git fetch origin main mm
+
+          git checkout -B main origin/main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "main 已包含上游 main"
+          else
+            # main 跟随上游。能快进就快进；分叉时冲突块采用上游。
+            if ! git merge --no-edit -X theirs -m "同步上游 main" upstream/main; then
+              keep_side theirs
+            fi
+          fi
+          git push origin HEAD:main
+
+          git checkout -B mm origin/mm
+          if git merge-base --is-ancestor main HEAD; then
+            echo "mm 已包含 main"
+            exit 0
+          fi
+
+          # 非冲突改动仍从 main 进入 mm；冲突块保留 mm（当前分支，即 ours）。
+          if ! git merge --no-edit -X ours -m "合并 main：冲突处以 mm 的功能为准" main; then
+            keep_side ours
+          fi
+          git push origin HEAD:mm
