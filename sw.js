@@ -31,6 +31,7 @@ var SHELL = [
   'assets/home.js',
   'assets/stats-config.js',
   'assets/stats.js',
+  'assets/stem-compat.js',
   'assets/children.js',
   'assets/paper-quality.js',
   'assets/paper-agent.js',

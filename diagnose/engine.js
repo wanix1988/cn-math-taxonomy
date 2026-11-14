@@ -4,7 +4,8 @@
  *         createSession(graph, targets, {limit, seed, avoid}) -> session   （会话是可 JSON 序列化的纯数据）
  *         nextQuestion(graph, session) -> topicId | null     （下一个要考的知识点）
  *         nextItem(graph, session) -> {topicId, question, attempt} | null   （要出的具体题目；attempt 从 1 起）
- *         applyAnswer(graph, session, id, 'correct'|'wrong'|'skip', {text}) -> 新 session（不修改入参）
+ *         applyAnswer(graph, session, id, 'correct'|'wrong'|'skip', {text, prompt, pin, qid}) -> 新 session（不修改入参）
+ *           pin 且 qid 对得上题库时，按这个题号记，不再重选。题号对不上则这步不记分。
  *         summarize(graph, session) -> 结果（根因、学习路径、掌握/不稳/薄弱/未测）
  *         gradeTargets(graph, '一年级'|'七上'|'高一'|'选必二', subject?) -> {ids, volumes, label} | null
  *           默认 subject 为 math，不把英语卷进数学的整册；'english' 只取英语（含九全），'physics' 只取物理（八上、八下、九全），'all' 不限学科
@@ -304,9 +305,16 @@
     const s = cloneSession(session);
     if (s.status[id]) { delete s.status[id]; s.attempts[id] = []; } // 对已有结论的点重新作答 = 重新开始
     const prev = s.attempts[id] || [];
-    const q = pickQuestion(graph, s, id, prev.length + 1);
+    let q;
+    if (extra && extra.pin) {
+      q = extra.qid ? questionById(graph, extra.qid) : null;
+      if (!q || q.topicId !== id) return session;
+    } else {
+      q = pickQuestion(graph, s, id, prev.length + 1);
+    }
     const rec = { id: id, qid: q ? q.id : null, result: result };
     if (extra && extra.text != null && extra.text !== '') rec.text = String(extra.text);
+    if (extra && extra.prompt) rec.prompt = String(extra.prompt);
     s.answers.push(rec);
     s.attempts[id] = prev.concat([{ qid: rec.qid, result: result }]);
     const attempts = s.attempts[id];
@@ -354,10 +362,19 @@
     return q ? { topicId: id, question: q, attempt: attempt } : null;
   }
 
-  /** 由作答记录重建会话（用于刷新恢复、撤销、更正）。 */
+  /** 由作答记录重建会话（用于刷新恢复、撤销、更正）。
+   *  记录里若有 qid，就钉在该题上，避免删掉中间一题后把后面的结果套到另一道题。
+   *  exclude 的作答整段跳过，不记分。 */
   function replay(graph, targets, answers, opts) {
     let s = createSession(graph, targets, opts);
-    answers.forEach(function (a) { s = applyAnswer(graph, s, a.id, a.result, { text: a.text }); });
+    answers.forEach(function (a) {
+      if (!a || a.exclude) return;
+      const extra = {};
+      if (a.text != null && a.text !== '') extra.text = a.text;
+      if (a.prompt) extra.prompt = a.prompt;
+      if (a.qid) { extra.pin = true; extra.qid = a.qid; }
+      s = applyAnswer(graph, s, a.id, a.result, extra);
+    });
     return s;
   }
 
@@ -561,8 +578,30 @@
     const hs = /^(高[一二]|选必[一二三]) (数学建模|数学探究) (\S+)$/.exec(s);
     if (hs) return { volume: hs[1], chapterNo: hs[2], chapterName: hs[3], section: '' };
     const m = /^(\S+) (第\S+章) (\S+?)(?: (\S+))?$/.exec(s);
-    if (!m) return { volume: '', chapterNo: '', chapterName: s, section: '' };
-    return { volume: m[1], chapterNo: m[2], chapterName: m[3], section: m[4] || '' };
+    if (m) return { volume: m[1], chapterNo: m[2], chapterName: m[3], section: m[4] || '' };
+    // 高中化学章名可以有多个词，例如「铁 金属材料」「物质结构 元素周期律」，绪言/引言也没有「第×章」。
+    // 只在上面的通用格式对不上、且首词是必修一/二/三或选必一/二/三时使用。
+    // 数学、英语、物理已经对上的章节不会落到这里。
+    const book = /^(必修[一二三]|选必[一二三])(?:\s+(.+))?$/.exec(s);
+    if (book) {
+      const rest = book[2] || '';
+      if (!rest || rest === '绪言' || rest === '引言') {
+        return { volume: book[1], chapterNo: rest || '绪言', chapterName: '', section: '' };
+      }
+      const ch = /^(第\S+章)\s+(.+)$/.exec(rest);
+      if (ch) {
+        let body = ch[2];
+        let section = '';
+        const sec = /^(.*)\s(\d+(?:\.\d+)*|整理与提升|实验活动\d*)$/.exec(body);
+        if (sec && sec[1]) {
+          body = sec[1];
+          section = sec[2];
+        }
+        return { volume: book[1], chapterNo: ch[1], chapterName: body, section: section };
+      }
+      return { volume: book[1], chapterNo: rest, chapterName: '', section: '' };
+    }
+    return { volume: '', chapterNo: '', chapterName: s, section: '' };
   }
 
   /** 学科：显式 subject 优先，否则 cne_ 是英语、cnp_ 是物理、cnc_ 是语文、cns_ 是科学、cnd_ 是道德与法治、cnh_ 是历史、cng_ 是地理、cnb_ 是生物、cnk_ 是化学，其余算数学。 */
@@ -651,12 +690,13 @@
     graph.topics.forEach(function (t) {
       if (t.external || !inOrder.has(t.id)) return;
       const c = parseChapter(t.chapter);
-      const key = c.volume + ' ' + c.chapterNo + ' ' + c.chapterName;
+      const parts = [c.volume, c.chapterNo, c.chapterName].filter(Boolean);
+      const key = parts.join(' ');
       let ch = byKey[key];
       if (!ch) {
         ch = byKey[key] = {
           key: key, volume: c.volume, chapterNo: c.chapterNo, chapterName: c.chapterName,
-          label: (c.volume ? c.volume + ' ' : '') + c.chapterNo + ' ' + c.chapterName,
+          label: parts.join(' '),
           total: 0, mastered: 0, shaky: 0, weak: 0, untested: 0, weakIds: [], shakyIds: [], untestedIds: [], _i: list.length
         };
         list.push(ch);

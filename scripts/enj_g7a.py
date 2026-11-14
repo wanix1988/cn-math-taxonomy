@@ -2,15 +2,56 @@
 """七年级上册。人教版 Go for it!（根据 2022 年版课程标准修订）。
 
 单元编号见 enj_build.UNITS：101–103 预备单元，1–7 正式单元，90 待核。
-食物四点改挂生成器编号 (7, 下, 40)，对应已入库的「七年级下册 第4单元 Eat Well」，
-题目不在本轮改写。
+食物四点按 2026-11-11 官方七下第4单元 Eat Well 改挂为 (7, 下, 4)，题目不在本轮改写。
 """
 from en_tx import V, P, G, F, R
 
-# 资源页只有单元标题。未核到具体单元的语音项目不改挂到 Hello! 等标题下。
-PENDING = (
-    " 2026-11-06 人教社七上资源页没有把这项写进某个单元标题，"
-    "公开教辅也未把它定为本册某一课的重点。暂不挂到具体单元，待核。"
+# 2026-11-11 已核智慧教育平台人教版2022课标修订七上官方阅读器（ISBN 978-7-107-38254-3）。
+# 已确认的语音点改挂对应单元；词尾 s 按七下语法附录改挂第1单元；交通四点仍留在 unit 90。
+OFFICIAL_STRESS = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级上册》"
+    "（ISBN 978-7-107-38254-3）官方阅读器：Unit 2 书页29 Word stress (1)，"
+    "Unit 3 书页37 Word stress (2)，附录书页93「单词重音」。"
+)
+OFFICIAL_TONE = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级上册》"
+    "（ISBN 978-7-107-38254-3）官方阅读器：Unit 7 书页69 有句末升调、降调记号练习，"
+    "附录书页94「语调」写明主要表现在语句末尾的降与升。"
+)
+PH_S_OFFICIAL = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级下册》"
+    "（ISBN 978-7-107-38255-0）官方阅读器：语法附录书页88「名词复数」给出名词复数词尾"
+    " -s/-es 读 /s/、/z/、/ɪz/ 的规则及读音表。本册第1单元官方语法含 Plurals，"
+    "Unit 1 另有 “Listen and repeat. Notice the pronunciation of – (e) s.” 的练习提示。"
+    "据此改挂第1单元 Animal Friends。"
+    "同日核《英语 七年级上册》（ISBN 978-7-107-38254-3）语法附录书页95–105："
+    "书页95只写可数名词有复数形式（如 eight rabbits、some trees），没有词尾读音规则。"
+    "书页96「名词所有格」和书页103第三人称单数动词有同类 /s/、/z/、/ɪz/ 读音，"
+    "但都不是名词复数词尾规则，不据此改挂七上。"
+    "七上附录发音页（书页92–94）和七下附录发音页（书页83–87）也没有这条复数词尾规则。"
+)
+TRANS_PENDING = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级上册》"
+    "（ISBN 978-7-107-38254-3）和《英语 七年级下册》（ISBN 978-7-107-38255-0）官方目录和正文："
+    "两册均无交通方式或怎么上学的同名课。不按旧版七下 How do you get to school 改挂。"
+    "七下正文未见独立的交通方式或怎么上学课。"
+    "七上 Reading Plus Unit 3 书页77「My Floating School」是关于孟加拉浮动学校的补充阅读，"
+    "文中有 “So how do I go to school? It’s easy! The school comes to me!”，"
+    "并写船既是校车又是教室，但不是交通方式词汇课，也不是谈论自己怎么上学的口语课；"
+    "讨论题问的是浮动学校对学生的重要性和可能困难。不足以把交通四点改挂到第3单元或其它单元。"
+    "七上第6单元书页64 “After breakfast, I walk to school. It’s only a 10-minute walk”"
+    "只是作息短文里的偶发句。语法附录中的 at the bus stop、on the way to 也只是介词例句。"
+    "暂不挂到具体单元，待核。"
+)
+OFFICIAL_LINK = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级上册》"
+    "（ISBN 978-7-107-38254-3）官方阅读器：Unit 4 书页45 Linking，"
+    "附录书页93「连读」包括辅音加元音、以及 r/re 加元音。"
+)
+OFFICIAL_PLOS = (
+    " 2026-11-11 已在智慧教育平台核人教版2022课标修订《英语 七年级上册》"
+    "（ISBN 978-7-107-38254-3）官方阅读器：Unit 5 书页53 用括号标出发音练习，"
+    "附录书页94 明确讲解「不完全爆破」。"
 )
 
 
@@ -18,8 +59,8 @@ def q(prompt, answer, wrongs, expl):
     return ("c", prompt, answer, wrongs, expl)
 
 
-P("ph_stress", "单词重音", 7, "上", 90,
-  "能判断常见单词的重音在第几个音节。" + PENDING, "stress", [
+P("ph_stress", "单词重音", 7, "上", 2,
+  "能判断常见单词的重音在第几个音节。" + OFFICIAL_STRESS, "stress", [
     q("teacher 的重音在第几个音节？", "第一个音节",
       ["第二个音节", "两个音节同样重", "没有重音"], "tea-cher 的重音在 tea。"),
     q("about 的重音在第几个音节？", "第二个音节",
@@ -30,8 +71,8 @@ P("ph_stress", "单词重音", 7, "上", 90,
       ["第一个音节", "第三个音节", "三个音节同样重"], "com-pu-ter 的重音在 pu。"),
 ])
 
-P("ph_tone7", "句末升降调", 7, "上", 90,
-  "能区分陈述句、特殊疑问句的降调和一般疑问句的升调。" + PENDING, "tone", [
+P("ph_tone7", "句末升降调", 7, "上", 7,
+  "能区分陈述句、特殊疑问句的降调和一般疑问句的升调。" + OFFICIAL_TONE, "tone", [
     q("一般疑问句 Are you a student? 句末通常用什么语调？", "升调",
       ["降调", "先降后升", "每个词都重读"], "一般疑问句句末通常用升调。"),
     q("陈述句 My name is Gina. 句末通常用什么语调？", "降调",
@@ -111,8 +152,8 @@ G("gr_plural7", "名词复数", 7, "上", 103,
       ["I see two rabbit.", "I see two rabites.", "I see two rabbites."], "two 后面用 rabbits。"),
 ])
 
-P("ph_s", "词尾 s 的读音", 7, "上", 90,
-  "能分辨词尾 -s、-es 读 /s/、/z/ 还是 /ɪz/。" + PENDING, "esound", [
+P("ph_s", "词尾 s 的读音", 7, "下", 1,
+  "能分辨词尾 -s、-es 读 /s/、/z/ 还是 /ɪz/。" + PH_S_OFFICIAL, "esound", [
     q("books 词尾 s 的读音和哪一个同类？", "maps",
       ["pens", "bags", "buses"], "books 和 maps 的词尾都读 /s/。"),
     q("bags 词尾 s 的读音和哪一个同类？", "pens",
@@ -306,11 +347,11 @@ R("rw_ball", "读体育社团短文", 7, "上", 5,
       "Tom can play basketball，他不会网球。"),
 ])
 
-V("vo_food7", "食物", 7, "下", 40,
+V("vo_food7", "食物", 7, "下", 4,
   "认读 banana、hamburger、salad 和 ice-cream。",
   [("banana", "香蕉"), ("hamburger", "汉堡包"), ("salad", "沙拉"), ("ice-cream", "冰激凌")], "vocab7")
 
-G("gr_count", "可数与不可数名词", 7, "下", 40,
+G("gr_count", "可数与不可数名词", 7, "下", 4,
   "能区分可数名词和不可数名词，并选用 a、an 或 some。", "noun_pron", [
     q("banana 是可数名词。哪一句正确？", "I like bananas.",
       ["I like a bananaes.", "I like bananaes.", "I like an bananas."], "可数名词复数是 bananas。"),
@@ -336,7 +377,7 @@ G("gr_like7", "like 的句型", 7, "上", 4,
       ["No, I doesn't.", "No, I'm not.", "No, I don't like."], "Do you 的否定简答是 No, I don't。"),
 ])
 
-F("fu_food7", "谈论食物", 7, "下", 40,
+F("fu_food7", "谈论食物", 7, "下", 4,
   "能询问和表达对食物的喜好。", "func_life", [
     q("想问对方喜不喜欢沙拉，哪一句合适？", "Do you like salad?",
       ["Are you like salad?", "Does you like salad?", "Do you likes salad?"], "you 用 Do you like。"),
@@ -349,7 +390,7 @@ F("fu_food7", "谈论食物", 7, "下", 40,
       "Let's 后面用动词原形 have。"),
 ])
 
-R("rw_food7", "读饮食短文", 7, "下", 40,
+R("rw_food7", "读饮食短文", 7, "下", 4,
   "读一段饮食短文，找出人物的喜好。", "read_detail", [
     q("Gina likes bananas and milk. She doesn't like hamburgers. Gina 喜欢汉堡吗？", "不喜欢",
       ["喜欢", "只在学校喜欢", "短文没说"], "She doesn't like hamburgers。"),
