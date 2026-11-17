@@ -59,6 +59,12 @@ jobs:
       - name: 档案备份恢复测试
         run: node tests/test_children.js
 
+      - name: 错题本存储测试
+        run: node tests/test_wrongbook.js
+
+      - name: 知识点静态页测试
+        run: node tests/test_kp_pages.js
+
       - name: 题目 ID 格式测试
         run: node tests/test_question_ids.js
 

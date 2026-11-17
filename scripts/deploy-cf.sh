@@ -27,6 +27,8 @@ cp -a "$ROOT/assets" "$DIST/"
 cp -a "$ROOT/explore" "$DIST/"
 cp -a "$ROOT/diagnose" "$DIST/"
 cp -a "$ROOT/children" "$DIST/"
+cp -a "$ROOT/goods" "$DIST/"
+cp -a "$ROOT/wrongbook" "$DIST/"
 rm -f "$DIST/diagnose/README.md"
 cp "$ROOT/data/topics.json" \
    "$ROOT/data/dependencies.json" \
@@ -34,6 +36,11 @@ cp "$ROOT/data/topics.json" \
    "$ROOT/data/questions.json" \
    "$ROOT/data/id-aliases.json" \
    "$DIST/data/"
+
+# 知识点静态页 / sitemap / robots（生成失败时 set -e 直接让脚本非零退出）
+node "$ROOT/scripts/gen-kp-pages.mjs" --out "$DIST"
+[[ -f "$ROOT/robots.txt" ]] && cp "$ROOT/robots.txt" "$DIST/"
+[[ -f "$ROOT/sitemap.xml" ]] && cp "$ROOT/sitemap.xml" "$DIST/"
 
 echo "Deploying $(du -sh "$DIST" | awk '{print $1}') from $DIST ..."
 # Upload often succeeds even if wrangler then trips on a local cache path; check exit and pages.dev.
