@@ -1247,7 +1247,7 @@ test('高中物理：必修一 27、必修二 25、必修三 37、选必一 28�
   assert.ok(links.length >= 40 && links.every((l) => String(l.id).startsWith('cnm_') && RG.byId[l.id] && l.reason));
   const hs = stdFile.items.filter((it) => String(it.id).startsWith('cps-hs-2017:'));
   assert.strictEqual(hs.length, 108);
-  assert.ok(hs.every((it) => it.verbatim === false && it.page_or_ref === '待核'));
+  assert.ok(hs.every((it) => it.verbatim === false && (it.page_or_ref === '待核' || /^课标印刷页码 \d+$/.test(it.page_or_ref))));
   assert.ok(stdFile.physics_senior && /2020/.test(stdFile.physics_senior.title) && /2019/.test(stdFile.physics_senior.textbook));
   const sq = questions.filter((q) => /^cnp_h\d/.test(String(q.topicId)));
   assert.strictEqual(sq.length, 177 * 4);
@@ -1687,6 +1687,14 @@ test('gradeTargets：一年级 = 一上 + 一下，七上只含七上；写法�
   assert.strictEqual(RGQ.byId.cnk_h099.name, '实验活动3 糖类的性质');
   assert.strictEqual(E.gradeTargets(RGQ, '必修一'), null);
   assert.strictEqual(E.gradeTargets(RGQ, '必修二'), null);
+  assert.deepStrictEqual(E.parseChapter('必修上 古诗词诵读 静女'), {
+    volume: '必修上', chapterNo: '古诗词诵读', chapterName: '静女', section: ''
+  });
+  assert.deepStrictEqual(E.parseChapter('必修上 第一单元 第1课'), {
+    volume: '必修上', chapterNo: '第一单元', chapterName: '第1课', section: ''
+  });
+  assert.strictEqual(E.gradeTargets(RGQ, '必修上'), null);
+  assert.strictEqual(E.gradeTargets(RGQ, '必修上', 'math'), null);
   assert.deepStrictEqual(E.parseChapter('必修一 绪言'), { volume: '必修一', chapterNo: '绪言', chapterName: '', section: '' });
   assert.deepStrictEqual(E.parseChapter('必修一 第三章 铁 金属材料 3.1'), {
     volume: '必修一', chapterNo: '第三章', chapterName: '铁 金属材料', section: '3.1'
