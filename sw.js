@@ -48,6 +48,8 @@ var SHELL = [
   'assets/handwriting.js',
   'assets/blindspots.js',
   'assets/wrongbook.js',
+  'assets/account.js',
+  'assets/sync.js',
   'assets/pwa.js',
   'assets/pwa.css',
   'assets/vendor/cytoscape.min.js',
@@ -64,9 +66,13 @@ var DATA = [
   'data/topics.json',
   'data/dependencies.json',
   'data/cn-curriculum-standards.json',
-  'data/questions.json',
+  'data/questions/index.json',
+  'data/questions/math.json',
   'data/id-aliases.json'
 ];
+/* 题库按学科分文件（data/questions/<学科>.json）：安装时只预缓存索引和默认学科数学，
+ * 其余学科第一次进入时由下面的 .json 规则（先用缓存、后台更新）缓存，之后可离线。
+ * 旧的整包 data/questions.json 不再预缓存、不再有页面请求它。 */
 
 function abs(path) { return new URL(path, SCOPE).href; }
 
