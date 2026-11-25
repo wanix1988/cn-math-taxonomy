@@ -550,7 +550,7 @@
 
   /**
    * 初中："七上 第一章 有理数 1.1" -> {volume:'七上', chapterNo:'第一章', chapterName:'有理数', section:'1.1'}
-   * 小学："一年级上册 第1单元 单元名" 或 "一年级上册 综合与实践 活动名"
+   * 小学："一年级上册 第1单元 单元名" 或 "一年级上册 综合与实践 活动名"；九年级综合与实践同样是册级："九年级上册 综合与实践 活动名"
    */
   function parseChapter(chapter) {
     const s = chapter || '';
@@ -559,7 +559,7 @@
     // 资源页没有写进某一课的项目，例如「七年级上册 待核」。仍算进该册，不假装有单元号。
     const pend = /^([一二三四五六七八九])年级([上下全])册 待核$/.exec(s);
     if (pend) return { volume: pend[1] + pend[2], chapterNo: '待核', chapterName: '未挂到具体单元', section: '' };
-    const pi = /^([一二三四五六])年级([上下])册 (综合与实践) (.+)$/.exec(s);
+    const pi = /^([一二三四五六九])年级([上下])册 (综合与实践) (.+)$/.exec(s);
     if (pi) return { volume: pi[1] + pi[2], chapterNo: pi[3], chapterName: pi[4], section: '' };
     // 小学英语复习 / Recycle（如「四年级上册 复习 Let's help!」）
     const prev = /^([一二三四五六])年级([上下])册 (复习) (.+)$/.exec(s);
@@ -721,14 +721,16 @@
    * 低年级的下册、semester 为「全」的点、其它年级的点都保留。curGrade 为 null 时，所有下册点都视为未学。
    * 只用于挑目标；沿先修边回溯不经过这里（先修本来就更早）。
    * 返回 { ids: 保留的, deferred: 因未学而排除的 }，顺序同入参。
+   * place(id, topic) 可选：返回 { grade, semester }（不同教材版本的落点），缺省读 topic 自己的 grade / semester；返回 null 当作保留。
    */
-  function filterByProgress(graph, ids, progress, curGrade) {
+  function filterByProgress(graph, ids, progress, curGrade, place) {
     if (progress !== '上') return { ids: ids.slice(), deferred: [] };
     const keep = [];
     const deferred = [];
     ids.forEach(function (id) {
       const t = graph.byId[id];
-      const later = !!t && t.semester === '下' && typeof t.grade === 'number' && (curGrade == null || t.grade === curGrade);
+      const at = place && t ? place(id, t) : t;
+      const later = !!at && at.semester === '下' && typeof at.grade === 'number' && (curGrade == null || at.grade === curGrade);
       (later ? deferred : keep).push(id);
     });
     return { ids: keep, deferred: deferred };
@@ -737,14 +739,22 @@
   /**
    * 按章汇总：范围内每章的 掌握 / 不稳 / 薄弱 / 未测 数量和薄弱、不稳的知识点 id。
    * 章按教材顺序给出，再按「薄弱数多、不稳数多」稳定排序，薄弱的章排前面。
+   * view 可选：{ chapterOf(topic) -> {volume, chapterNo, chapterName}, order(topic) -> 数字 }，
+   * 给其它教材版本按自己的单元与顺序汇总；缺省按 topic.chapter 与 topics 文件顺序。
    */
-  function chapterSummary(graph, session) {
+  function chapterSummary(graph, session, view) {
     const inOrder = new Set(session.order);
     const byKey = Object.create(null);
     const list = [];
-    graph.topics.forEach(function (t) {
+    let source = graph.topics;
+    if (view && view.order) {
+      source = graph.topics.map(function (t, i) { return { t: t, k: view.order(t), i: i }; })
+        .sort(function (a, b) { return a.k - b.k || a.i - b.i; })
+        .map(function (x) { return x.t; });
+    }
+    source.forEach(function (t) {
       if (t.external || !inOrder.has(t.id)) return;
-      const c = parseChapter(t.chapter);
+      const c = view && view.chapterOf ? view.chapterOf(t) : parseChapter(t.chapter);
       const parts = [c.volume, c.chapterNo, c.chapterName].filter(Boolean);
       const key = parts.join(' ');
       let ch = byKey[key];

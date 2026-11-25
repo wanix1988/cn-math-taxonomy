@@ -75,7 +75,8 @@ var DATA = [
   'data/questions/index.json',
   'data/questions/math.json',
   'data/id-aliases.json',
-  'data/english/days.json'
+  'data/english/days.json',
+  'data/mappings/hujiao-math.json'
 ];
 /* 题库按学科分文件（data/questions/<学科>.json，含思想政治 politics.json）：安装时只预缓存索引和默认学科数学，
  * 其余学科第一次进入时由下面的 .json 规则（先用缓存、后台更新）缓存，之后可离线。
